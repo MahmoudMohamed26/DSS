@@ -20,7 +20,7 @@ public class EditAttendanceUI {
 
     public EditAttendanceUI(DefaultTableModel tableModel, int studentId, int subjectId, LocalDate date) {
         this.tableModel = tableModel;
-       this.studentId = studentId;
+        this.studentId = studentId;
         this.subjectId = subjectId;
         this.date = date;
         frame = new JFrame("Edit Attendance");
