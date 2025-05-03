@@ -1,6 +1,9 @@
 package com.example.studentperformance.ui;
 
 import com.example.studentperformance.DatabaseConnection;
+import com.example.studentperformance.dao.StudentDAO;
+import com.example.studentperformance.dao.StudentDAOImpl;
+
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
@@ -363,7 +366,7 @@ public class MainUI {
         // Create the four main action buttons with modern design
         JButton manageStudentsButton = createDashboardButton("Manage Students", studentIcon, e -> {
             statusLabel.setText("Opening student management...");
-            ManageStudentsUI manageStudentsUI = new ManageStudentsUI(DatabaseConnection.getConnection());
+            ManageStudentsUI manageStudentsUI = new ManageStudentsUI(DatabaseConnection.getConnection() , new StudentDAOImpl(DatabaseConnection.getConnection()));
             manageStudentsUI.setVisible(true);
         });
 
