@@ -384,7 +384,7 @@ public class MainUI {
 
         JButton manageAttendanceButton = createDashboardButton("Manage Attendance", attendanceIcon, e -> {
             statusLabel.setText("Opening attendance management...");
-            ManageAttendanceUI manageAttendanceUI = new ManageAttendanceUI();
+            ManageAttendanceUI manageAttendanceUI = new ManageAttendanceUI(DatabaseConnection.getConnection());
             manageAttendanceUI.setVisible(true);
         });
 
