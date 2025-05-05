@@ -19,7 +19,7 @@ CREATE TABLE Grades (
 );
 
 CREATE TABLE Attendance (
-    attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,    
+    attendance_id INTEGER PRIMARY KEY AUTOINCREMENT,
     student_id INTEGER NOT NULL,
     subject_id INTEGER NOT NULL,
     date DATE NOT NULL,

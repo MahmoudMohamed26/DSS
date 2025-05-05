@@ -1,6 +1,10 @@
 package com.example.studentperformance.ui;
 
 import com.example.studentperformance.DatabaseConnection;
+import com.example.studentperformance.dao.*;
+import com.example.studentperformance.dao.AttendanceDAO.Attendance;
+import com.example.studentperformance.dao.StudentDAO.Student;
+import com.example.studentperformance.dao.SubjectDAO.Subject;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -11,11 +15,13 @@ import java.awt.geom.Line2D;
 import java.awt.geom.Path2D;
 import java.awt.geom.Rectangle2D;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.text.SimpleDateFormat;
+import java.time.DayOfWeek;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.List;
+import java.util.stream.Collectors;
 
 public class AttendanceReport extends JFrame {
     // Constants for styling - matching MainUI
@@ -32,19 +38,95 @@ public class AttendanceReport extends JFrame {
 
     private JPanel contentPane;
     private JPanel chartPanel;
-    private JComboBox<String> studentComboBox;
+    private JComboBox<ComboItem<Integer>> studentComboBox;
     private JComboBox<String> periodComboBox;
+    private JComboBox<ComboItem<Integer>> subjectComboBox;
     private JLabel statusLabel;
 
     // Data for the chart
-    private Map<String, List<Integer>> attendanceData;
+    private Map<String, List<Double>> attendanceData;
     private List<String> dateLabels;
-    private String selectedStudent = "All Students";
+    private Integer selectedStudentId = -1; // -1 represents "All Students"
     private String selectedPeriod = "Last 30 Days";
+    private Integer selectedSubjectId = -1; // -1 represents "All Subjects"
+
+    // DAOs
+    private StudentDAO studentDAO;
+    private AttendanceDAO attendanceDAO;
+    private SubjectDAO subjectDAO;
+
+
+
+    // Debug flag
+    private static final boolean DEBUG = true;
+
+    // Helper class for combo boxes
+    static class ComboItem<T> {
+        private T value;
+        private String label;
+
+        public ComboItem(T value, String label) {
+            this.value = value;
+            this.label = label;
+        }
+
+        public T getValue() {
+            return value;
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
 
     public AttendanceReport() {
+        // Test database connection first
+        testDatabaseConnection();
+
+        // Initialize DAOs
+        try {
+            debug("Initializing DAOs...");
+            Connection conn = DatabaseConnection.getConnection();
+            if (conn == null) {
+                throw new Exception("Database connection is null");
+            }
+
+            studentDAO = new StudentDAOImpl(conn);
+            attendanceDAO = new AttendanceDAOImpl(conn);
+            subjectDAO = new SubjectDAOImpl(conn);
+            debug("DAOs initialized successfully");
+        } catch (Exception e) {
+            debug("Error initializing database connection: " + e.getMessage());
+            e.printStackTrace();
+            JOptionPane.showMessageDialog(this,
+                    "Error initializing database connection: " + e.getMessage(),
+                    "Database Error",
+                    JOptionPane.ERROR_MESSAGE);
+        }
+
         initializeUI();
-        loadMockData(); // In a real app, replace with loadDataFromDatabase()
+        loadDatabaseData();
+    }
+
+    private void debug(String message) {
+        if (DEBUG) {
+            System.out.println("[DEBUG] " + message);
+        }
+    }
+
+    private void testDatabaseConnection() {
+        try {
+            Connection conn = DatabaseConnection.getConnection();
+            if (conn != null && !conn.isClosed()) {
+                debug("Database connection successful!");
+            } else {
+                debug("Database connection is null or closed!");
+            }
+        } catch (Exception e) {
+            debug("Database connection test failed: " + e.getMessage());
+            e.printStackTrace();
+        }
     }
 
     private void initializeUI() {
@@ -110,7 +192,7 @@ public class AttendanceReport extends JFrame {
         headerPanel.add(titleLabel, BorderLayout.CENTER);
 
         // Current date
-        JLabel dateLabel = new JLabel(new SimpleDateFormat("EEEE, MMMM d, yyyy").format(new Date()));
+        JLabel dateLabel = new JLabel(DateTimeFormatter.ofPattern("EEEE, MMMM d, yyyy").format(LocalDate.now()));
         dateLabel.setFont(new Font("Segoe UI", Font.ITALIC, 14));
         dateLabel.setForeground(TEXT_COLOR);
         headerPanel.add(dateLabel, BorderLayout.EAST);
@@ -138,15 +220,41 @@ public class AttendanceReport extends JFrame {
         studentLabel.setForeground(TEXT_COLOR);
         studentLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        studentComboBox = new JComboBox<>(new String[]{"All Students", "John Smith", "Maria Garcia", "Ahmed Khan", "Emily Wong", "David Lee"});
+        // Will be populated in loadDatabaseData()
+        studentComboBox = new JComboBox<>();
         studentComboBox.setFont(LABEL_FONT);
         studentComboBox.setAlignmentX(Component.LEFT_ALIGNMENT);
         studentComboBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, studentComboBox.getPreferredSize().height));
         studentComboBox.addActionListener(e -> {
-            selectedStudent = (String) studentComboBox.getSelectedItem();
-            loadMockData(); // In a real app, reload data from database
-            chartPanel.repaint();
-            statusLabel.setText("Showing attendance data for " + selectedStudent);
+            if (studentComboBox.getSelectedItem() == null) return;
+            ComboItem<Integer> selectedItem = (ComboItem<Integer>) studentComboBox.getSelectedItem();
+            if (selectedItem != null) {
+                selectedStudentId = selectedItem.getValue();
+                loadDatabaseData();
+                chartPanel.repaint();
+                statusLabel.setText("Showing attendance data for " + selectedItem.toString());
+            }
+        });
+
+        JLabel subjectLabel = new JLabel("Subject:");
+        subjectLabel.setFont(LABEL_FONT);
+        subjectLabel.setForeground(TEXT_COLOR);
+        subjectLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+
+        // Will be populated in loadDatabaseData()
+        subjectComboBox = new JComboBox<>();
+        subjectComboBox.setFont(LABEL_FONT);
+        subjectComboBox.setAlignmentX(Component.LEFT_ALIGNMENT);
+        subjectComboBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, subjectComboBox.getPreferredSize().height));
+        subjectComboBox.addActionListener(e -> {
+            if (subjectComboBox.getSelectedItem() == null) return;
+            ComboItem<Integer> selectedItem = (ComboItem<Integer>) subjectComboBox.getSelectedItem();
+            if (selectedItem != null) {
+                selectedSubjectId = selectedItem.getValue();
+                loadDatabaseData();
+                chartPanel.repaint();
+                statusLabel.setText("Showing attendance for " + selectedItem.toString());
+            }
         });
 
         JLabel periodLabel = new JLabel("Time Period:");
@@ -154,14 +262,14 @@ public class AttendanceReport extends JFrame {
         periodLabel.setForeground(TEXT_COLOR);
         periodLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
 
-        periodComboBox = new JComboBox<>(new String[]{"Last 7 Days", "Last 30 Days", "Last Semester", "Full Year"});
+        periodComboBox = new JComboBox<>(new String[]{"Last 7 Days", "Last 30 Days", "Last Semester (120 Days)", "Full Year"});
         periodComboBox.setSelectedIndex(1); // Default to "Last 30 Days"
         periodComboBox.setFont(LABEL_FONT);
         periodComboBox.setAlignmentX(Component.LEFT_ALIGNMENT);
         periodComboBox.setMaximumSize(new Dimension(Integer.MAX_VALUE, periodComboBox.getPreferredSize().height));
         periodComboBox.addActionListener(e -> {
             selectedPeriod = (String) periodComboBox.getSelectedItem();
-            loadMockData(); // In a real app, reload data from database
+            loadDatabaseData();
             chartPanel.repaint();
             statusLabel.setText("Showing attendance for " + selectedPeriod);
         });
@@ -171,9 +279,9 @@ public class AttendanceReport extends JFrame {
         refreshButton.setAlignmentX(Component.LEFT_ALIGNMENT);
         refreshButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, refreshButton.getPreferredSize().height));
         refreshButton.addActionListener(e -> {
-            loadMockData(); // In a real app, reload data from database
+            loadDatabaseData();
             chartPanel.repaint();
-            statusLabel.setText("Data refreshed for " + selectedStudent);
+            statusLabel.setText("Data refreshed");
         });
 
         JButton exportButton = new JButton("Export Chart");
@@ -190,12 +298,25 @@ public class AttendanceReport extends JFrame {
             );
         });
 
+        // Debug button
+        JButton debugButton = new JButton("Debug Info");
+        debugButton.setFont(LABEL_FONT);
+        debugButton.setAlignmentX(Component.LEFT_ALIGNMENT);
+        debugButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, debugButton.getPreferredSize().height));
+        debugButton.addActionListener(e -> {
+            showDebugInfo();
+        });
+
         // Add components to control panel with spacing
         controlPanel.add(filterLabel);
         controlPanel.add(Box.createVerticalStrut(15));
         controlPanel.add(studentLabel);
         controlPanel.add(Box.createVerticalStrut(5));
         controlPanel.add(studentComboBox);
+        controlPanel.add(Box.createVerticalStrut(15));
+        controlPanel.add(subjectLabel);
+        controlPanel.add(Box.createVerticalStrut(5));
+        controlPanel.add(subjectComboBox);
         controlPanel.add(Box.createVerticalStrut(15));
         controlPanel.add(periodLabel);
         controlPanel.add(Box.createVerticalStrut(5));
@@ -205,54 +326,61 @@ public class AttendanceReport extends JFrame {
         controlPanel.add(Box.createVerticalStrut(10));
         controlPanel.add(exportButton);
 
-        // Add a summary panel
-        JPanel summaryPanel = createSummaryPanel();
-        controlPanel.add(Box.createVerticalStrut(30));
-        controlPanel.add(summaryPanel);
+        if (DEBUG) {
+            controlPanel.add(Box.createVerticalStrut(10));
+            controlPanel.add(debugButton);
+        }
+
+
 
         return controlPanel;
     }
 
-    private JPanel createSummaryPanel() {
-        JPanel summaryPanel = new JPanel();
-        summaryPanel.setLayout(new BoxLayout(summaryPanel, BoxLayout.Y_AXIS));
-        summaryPanel.setOpaque(false);
-        summaryPanel.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createLineBorder(new Color(220, 220, 220), 1, true),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-        summaryPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
+    private void showDebugInfo() {
+        StringBuilder info = new StringBuilder();
+        info.append("Database Connection: ");
 
-        JLabel summaryLabel = new JLabel("Summary");
-        summaryLabel.setFont(new Font("Segoe UI", Font.BOLD, 14));
-        summaryLabel.setForeground(TEXT_COLOR);
-        summaryLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        try {
+            Connection conn = DatabaseConnection.getConnection();
+            info.append(conn != null && !conn.isClosed() ? "OK" : "FAILED").append("\n");
+        } catch (Exception e) {
+            info.append("ERROR: ").append(e.getMessage()).append("\n");
+        }
 
-        JLabel avgAttendanceLabel = new JLabel("Average Attendance: 83%");
-        avgAttendanceLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        avgAttendanceLabel.setForeground(TEXT_COLOR);
-        avgAttendanceLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        info.append("\nDAO Status:\n");
+        info.append("StudentDAO: ").append(studentDAO != null ? "Initialized" : "NULL").append("\n");
+        info.append("SubjectDAO: ").append(subjectDAO != null ? "Initialized" : "NULL").append("\n");
+        info.append("AttendanceDAO: ").append(attendanceDAO != null ? "Initialized" : "NULL").append("\n");
 
-        JLabel highestLabel = new JLabel("Highest Day: Monday (92%)");
-        highestLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        highestLabel.setForeground(TEXT_COLOR);
-        highestLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        info.append("\nData Status:\n");
+        info.append("Selected Student: ").append(selectedStudentId).append("\n");
+        info.append("Selected Subject: ").append(selectedSubjectId).append("\n");
+        info.append("Selected Period: ").append(selectedPeriod).append("\n");
+        info.append("Date Labels Count: ").append(dateLabels != null ? dateLabels.size() : "NULL").append("\n");
+        info.append("Attendance Data Size: ").append(attendanceData != null ? attendanceData.size() : "NULL").append("\n");
 
-        JLabel lowestLabel = new JLabel("Lowest Day: Friday (76%)");
-        lowestLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        lowestLabel.setForeground(TEXT_COLOR);
-        lowestLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
+        if (attendanceData != null && !attendanceData.isEmpty()) {
+            info.append("\nAttendance Data Contents:\n");
+            for (Map.Entry<String, List<Double>> entry : attendanceData.entrySet()) {
+                info.append(entry.getKey()).append(": ")
+                        .append(entry.getValue().size()).append(" records\n");
+            }
+        }
 
-        summaryPanel.add(summaryLabel);
-        summaryPanel.add(Box.createVerticalStrut(8));
-        summaryPanel.add(avgAttendanceLabel);
-        summaryPanel.add(Box.createVerticalStrut(5));
-        summaryPanel.add(highestLabel);
-        summaryPanel.add(Box.createVerticalStrut(5));
-        summaryPanel.add(lowestLabel);
+        JTextArea textArea = new JTextArea(info.toString());
+        textArea.setEditable(false);
+        JScrollPane scrollPane = new JScrollPane(textArea);
+        scrollPane.setPreferredSize(new Dimension(500, 400));
 
-        return summaryPanel;
+        JOptionPane.showMessageDialog(
+                this,
+                scrollPane,
+                "Debug Information",
+                JOptionPane.INFORMATION_MESSAGE
+        );
     }
+
+
 
     private JPanel createChartPanel() {
         JPanel panel = new JPanel() {
@@ -278,6 +406,21 @@ public class AttendanceReport extends JFrame {
             g2.setColor(TEXT_COLOR);
             g2.setFont(TITLE_FONT);
             g2.drawString("No attendance data available", 50, 50);
+
+            // Additional debug info in chart
+            if (DEBUG) {
+                g2.setFont(new Font("Monospaced", Font.PLAIN, 12));
+                g2.drawString("dateLabels: " + (dateLabels == null ? "null" : dateLabels.size() + " items"), 50, 80);
+                g2.drawString("attendanceData: " + (attendanceData == null ? "null" : attendanceData.size() + " entries"), 50, 100);
+
+                int line = 120;
+                if (attendanceData != null) {
+                    for (Map.Entry<String, List<Double>> entry : attendanceData.entrySet()) {
+                        g2.drawString(entry.getKey() + ": " + entry.getValue().size() + " data points", 50, line);
+                        line += 20;
+                    }
+                }
+            }
             return;
         }
 
@@ -345,7 +488,6 @@ public class AttendanceReport extends JFrame {
         int numDates = dateLabels.size();
         if (numDates == 0) return;
 
-        // If too many dates, only show subset
         int skipFactor = Math.max(1, numDates / 10);
         int labelHeight = metrics.getHeight();
 
@@ -355,59 +497,52 @@ public class AttendanceReport extends JFrame {
                 String dateLabel = dateLabels.get(i);
                 int x = chartX + (i * chartWidth / (numDates - 1));
 
-                // Draw vertical grid line
                 g2.setColor(GRID_COLOR);
                 g2.draw(new Line2D.Double(x, chartY, x, chartY + chartHeight));
 
-                // Draw date label (rotated for better fit if many dates)
                 g2.setColor(TEXT_COLOR);
-
                 if (numDates > 15) {
-                    // Rotated labels for many dates
                     g2.rotate(Math.PI / 4, x, chartY + chartHeight + 5);
                     g2.drawString(dateLabel, x, chartY + chartHeight + 5 + labelHeight);
                     g2.rotate(-Math.PI / 4, x, chartY + chartHeight + 5);
                 } else {
-                    // Horizontal labels for fewer dates
-                    int labelWidth = metrics.stringWidth(dateLabel);
-                    g2.drawString(dateLabel, x - labelWidth / 2, chartY + chartHeight + labelHeight + 5);
+                    int lw = metrics.stringWidth(dateLabel);
+                    g2.drawString(dateLabel, x - lw / 2, chartY + chartHeight + labelHeight + 5);
                 }
             }
         }
 
-        // Draw data lines for each dataset
-        for (Map.Entry<String, List<Integer>> entry : attendanceData.entrySet()) {
+        // Prepare entries list for indexed iteration
+        List<Map.Entry<String, List<Double>>> entries = new ArrayList<>(attendanceData.entrySet());
+
+        // Draw data lines and legend for each dataset
+        boolean dataDrawn = false;
+        for (int idx = 0; idx < entries.size(); idx++) {
+            Map.Entry<String, List<Double>> entry = entries.get(idx);
             String student = entry.getKey();
-            List<Integer> data = entry.getValue();
+            List<Double> data = entry.getValue();
+            if (data.isEmpty()) continue;
 
-            // Skip if not the selected student and not showing "All Students"
-            if (!selectedStudent.equals("All Students") && !student.equals(selectedStudent)) {
-                continue;
-            }
-
-            // Generate a specific color based on student name (for when showing all students)
+            // Determine colors
             Color lineColor = LINE_COLOR;
             Color pointColor = DATA_POINT_COLOR;
-
-            if (selectedStudent.equals("All Students")) {
-                // Generate colors based on student name hash
+            if (selectedStudentId == -1) {
                 int hash = student.hashCode();
-                lineColor = new Color(
-                        Math.abs(hash) % 200 + 30,
-                        Math.abs(hash / 100) % 200 + 30,
-                        Math.abs(hash / 10000) % 200 + 30
-                );
+                lineColor = new Color(Math.abs(hash) % 200 + 30, Math.abs(hash / 100) % 200 + 30, Math.abs(hash / 10000) % 200 + 30);
                 pointColor = lineColor.brighter();
             }
 
-            // Draw the line
             Path2D path = new Path2D.Double();
             boolean first = true;
+            boolean anyValidPoints = false;
 
             for (int i = 0; i < Math.min(data.size(), numDates); i++) {
-                int value = data.get(i);
+                double value = data.get(i);
+                if (value < 0) continue;
+                anyValidPoints = true;
+
                 int x = chartX + (i * chartWidth / (numDates - 1));
-                int y = chartY + chartHeight - (value * chartHeight / 100);
+                int y = chartY + chartHeight - (int) (value * chartHeight / 100);
 
                 if (first) {
                     path.moveTo(x, y);
@@ -416,238 +551,268 @@ public class AttendanceReport extends JFrame {
                     path.lineTo(x, y);
                 }
 
-                // Draw data points
                 g2.setColor(pointColor);
                 g2.fill(new Ellipse2D.Double(x - 4, y - 4, 8, 8));
-                g2.setColor(Color.WHITE);
-                g2.fill(new Ellipse2D.Double(x - 2, y - 2, 4, 4));
-            }
 
-            // Draw the connecting line
-            g2.setColor(lineColor);
-            g2.setStroke(new BasicStroke(2f));
-            g2.draw(path);
-
-            // Add student label/legend if showing all students
-            if (selectedStudent.equals("All Students")) {
-                int lastIndex = Math.min(data.size(), numDates) - 1;
-                if (lastIndex >= 0) {
-                    int value = data.get(lastIndex);
-                    int x = chartX + (lastIndex * chartWidth / (numDates - 1)) + 10;
-                    int y = chartY + chartHeight - (value * chartHeight / 100);
-
-                    g2.setColor(lineColor);
-                    g2.setFont(new Font("Segoe UI", Font.BOLD, 10));
-                    g2.drawString(student, x, y - 5);
+                if (x - 5 <= mouseX && mouseX <= x + 5 && y - 5 <= mouseY && mouseY <= y + 5) {
+                    String tooltip = student + ": " + String.format("%.1f%%", value) + " on " + dateLabels.get(i);
+                    g2.setColor(new Color(50, 50, 50, 220));
+                    int tooltipWidth = g2.getFontMetrics().stringWidth(tooltip) + 10;
+                    int tooltipHeight = g2.getFontMetrics().getHeight() + 6;
+                    g2.fillRoundRect(mouseX + 10, mouseY - tooltipHeight - 5, tooltipWidth, tooltipHeight, 5, 5);
+                    g2.setColor(Color.WHITE);
+                    g2.drawString(tooltip, mouseX + 15, mouseY - 10);
                 }
             }
+
+            if (anyValidPoints) {
+                dataDrawn = true;
+                g2.setColor(lineColor);
+                g2.setStroke(new BasicStroke(2));
+                g2.draw(path);
+
+
+            }
+        }
+
+        if (!dataDrawn) {
+            g2.setColor(TEXT_COLOR);
+            g2.setFont(TITLE_FONT);
+            String msg = "No attendance data available for the selected criteria";
+            int msgWidth = g2.getFontMetrics().stringWidth(msg);
+            g2.drawString(msg, chartX + (chartWidth - msgWidth) / 2, chartY + chartHeight / 2);
         }
     }
+
+    // Mouse coordinates for tooltips
+    private int mouseX = -1;
+    private int mouseY = -1;
 
     private JPanel createStatusPanel() {
-        JPanel statusPanel = new JPanel(new BorderLayout());
-        statusPanel.setBackground(new Color(240, 240, 240));
-        statusPanel.setBorder(BorderFactory.createEmptyBorder(5, 10, 5, 10));
+        JPanel panel = new JPanel(new BorderLayout());
+        panel.setOpaque(false);
+        panel.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
 
-        statusLabel = new JLabel("Ready - Showing attendance data");
-        statusLabel.setFont(new Font("Segoe UI", Font.ITALIC, 12));
+        statusLabel = new JLabel("Ready");
+        statusLabel.setFont(LABEL_FONT);
+        statusLabel.setForeground(SECONDARY_COLOR);
 
-        JLabel versionLabel = new JLabel("v2.0");
-        versionLabel.setFont(new Font("Segoe UI", Font.PLAIN, 12));
-        versionLabel.setHorizontalAlignment(SwingConstants.RIGHT);
+        panel.add(statusLabel, BorderLayout.WEST);
 
-        statusPanel.add(statusLabel, BorderLayout.WEST);
-        statusPanel.add(versionLabel, BorderLayout.EAST);
-
-        return statusPanel;
-    }
-
-    private void loadMockData() {
-        // In a real application, this would be replaced with database queries
-        // but for this example, we'll generate random data
-
-        attendanceData = new HashMap<>();
-        dateLabels = new ArrayList<>();
-
-        // Generate date labels based on selected period
-        Calendar cal = Calendar.getInstance();
-        SimpleDateFormat sdf = new SimpleDateFormat("MMM dd");
-        int numDays;
-
-        switch (selectedPeriod) {
-            case "Last 7 Days":
-                numDays = 7;
-                break;
-            case "Last 30 Days":
-                numDays = 30;
-                break;
-            case "Last Semester":
-                numDays = 120;
-                break;
-            case "Full Year":
-                numDays = 365;
-                break;
-            default:
-                numDays = 30;
-        }
-
-        // Generate dates (newest to oldest)
-        for (int i = 0; i < numDays; i++) {
-            cal.add(Calendar.DAY_OF_MONTH, -1);
-            dateLabels.add(sdf.format(cal.getTime()));
-        }
-        Collections.reverse(dateLabels); // Reverse to show oldest to newest
-
-        // If specific student selected
-        if (!selectedStudent.equals("All Students")) {
-            List<Integer> data = generateRandomAttendance(numDays, selectedStudent);
-            attendanceData.put(selectedStudent, data);
-        } else {
-            // Generate data for all students
-            String[] students = {"John Smith", "Maria Garcia", "Ahmed Khan", "Emily Wong", "David Lee"};
-            for (String student : students) {
-                List<Integer> data = generateRandomAttendance(numDays, student);
-                attendanceData.put(student, data);
+        // Add mouse motion listener for tooltips
+        chartPanel.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseMoved(MouseEvent e) {
+                mouseX = e.getX();
+                mouseY = e.getY();
+                chartPanel.repaint();
             }
-        }
+        });
 
-        // In a real app, update the summary panel with actual calculated values
-        updateSummaryPanel();
+        chartPanel.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseExited(MouseEvent e) {
+                mouseX = -1;
+                mouseY = -1;
+                chartPanel.repaint();
+            }
+        });
+
+        return panel;
     }
 
-    private List<Integer> generateRandomAttendance(int numDays, String seed) {
-        // Generate slightly realistic attendance data with some randomness
-        // but maintain patterns (e.g., certain students tend to have better/worse attendance)
+    private void loadDatabaseData() {
+        try {
+            debug("Loading database data...");
 
-        List<Integer> data = new ArrayList<>();
-        Random random = new Random(seed.hashCode()); // Use student name as seed for consistency
+            // Load students for combo box if not already loaded
+            if (studentComboBox.getItemCount() == 0) {
+                debug("Loading students for combo box...");
 
-        // Base attendance rate varies by student (between 70% and 95%)
-        int baseAttendance = 70 + random.nextInt(25);
+                // Add "All Students" option
+                studentComboBox.addItem(new ComboItem<>(-1, "All Students"));
 
-        // Generate daily attendance with weekly patterns and small fluctuations
-        for (int i = 0; i < numDays; i++) {
-            int dayOfWeek = i % 7;
+                List<Student> students = studentDAO.getAllStudents();
+                debug("Retrieved " + students.size() + " students from database");
 
-            // Lower attendance on Fridays and Mondays
-            int dayFactor = 0;
-            if (dayOfWeek == 0) dayFactor = -5; // Monday
-            if (dayOfWeek == 4) dayFactor = -10; // Friday
+                for (Student student : students) {
+                    studentComboBox.addItem(new ComboItem<>(student.getStudentId(), student.getName()));
+                }
+            }
 
-            // Add random fluctuation between -8 and +8
-            int fluctuation = random.nextInt(17) - 8;
+            // Load subjects for combo box if not already loaded
+            if (subjectComboBox.getItemCount() == 0) {
+                debug("Loading subjects for combo box...");
 
-            // Calculate final attendance percentage
-            int attendance = baseAttendance + dayFactor + fluctuation;
+                // Add "All Subjects" option
+                subjectComboBox.addItem(new ComboItem<>(-1, "All Subjects"));
 
-            // Ensure attendance is between 0 and 100
-            attendance = Math.max(0, Math.min(100, attendance));
+                List<Subject> subjects = subjectDAO.getAllSubjects();
+                debug("Retrieved " + subjects.size() + " subjects from database");
 
-            data.add(attendance);
-        }
-
-        return data;
-    }
-
-    private void updateSummaryPanel() {
-        // In a real application, this would calculate actual summary statistics
-        // For this example, we're just using fixed values
-    }
-
-    // In a real application, you would have a method like this:
-    private void loadDataFromDatabase() {
-        /*
-        try (Connection conn = DatabaseConnection.getConnection()) {
-            // Sample query (adjust according to your database schema)
-            String query = "SELECT s.student_name, a.date, a.attendance_percent " +
-                          "FROM attendance a " +
-                          "JOIN students s ON a.student_id = s.id " +
-                          "WHERE a.date >= ? " +
-                          "ORDER BY s.student_name, a.date";
+                for (Subject subject : subjects) {
+                    subjectComboBox.addItem(new ComboItem<>(subject.getSubjectId(), subject.getName()));
+                }
+            }
 
             // Calculate date range based on selected period
-            Calendar cal = Calendar.getInstance();
-            java.sql.Date endDate = new java.sql.Date(cal.getTime().getTime());
+            LocalDate endDate = LocalDate.now();
+            LocalDate startDate;
 
-            // Set start date based on selected period
             switch (selectedPeriod) {
                 case "Last 7 Days":
-                    cal.add(Calendar.DAY_OF_MONTH, -7);
+                    startDate = endDate.minusDays(6); // Include today
                     break;
                 case "Last 30 Days":
-                    cal.add(Calendar.DAY_OF_MONTH, -30);
+                    startDate = endDate.minusDays(29); // Include today
                     break;
-                case "Last Semester":
-                    cal.add(Calendar.MONTH, -6);
+                case "Last Semester (120 Days)":
+                    startDate = endDate.minusDays(119); // Include today
                     break;
                 case "Full Year":
-                    cal.add(Calendar.YEAR, -1);
+                    startDate = endDate.minusDays(364); // Include today
                     break;
+                default:
+                    startDate = endDate.minusDays(29); // Default to 30 days
             }
-            java.sql.Date startDate = new java.sql.Date(cal.getTime().getTime());
 
-            PreparedStatement stmt = conn.prepareStatement(query);
-            stmt.setDate(1, startDate);
+            debug("Date range: " + startDate + " to " + endDate);
 
-            ResultSet rs = stmt.executeQuery();
-
-            // Process results
-            attendanceData = new HashMap<>();
+            // Generate date labels based on selected period
             dateLabels = new ArrayList<>();
-            Set<String> uniqueDates = new TreeSet<>();
+            DateTimeFormatter formatter;
 
-            // First pass to get all unique dates
-            while (rs.next()) {
-                String dateStr = new SimpleDateFormat("MMM dd").format(rs.getDate("date"));
-                uniqueDates.add(dateStr);
+            // Choose appropriate date format based on period
+            if (selectedPeriod.equals("Last 7 Days")) {
+                formatter = DateTimeFormatter.ofPattern("EEE, MMM d"); // e.g., "Mon, Jan 1"
+            } else if (selectedPeriod.equals("Last 30 Days")) {
+                formatter = DateTimeFormatter.ofPattern("MMM d"); // e.g., "Jan 1"
+            } else {
+                formatter = DateTimeFormatter.ofPattern("MMM d"); // e.g., "Jan 1"
             }
 
-            // Convert sorted dates to list
-            dateLabels.addAll(uniqueDates);
-
-            // Reset result set
-            rs = stmt.executeQuery();
-
-            // Second pass to organize data by student
-            while (rs.next()) {
-                String student = rs.getString("student_name");
-                String dateStr = new SimpleDateFormat("MMM dd").format(rs.getDate("date"));
-                int attendancePercent = rs.getInt("attendance_percent");
-
-                // If filtering by student
-                if (!selectedStudent.equals("All Students") && !student.equals(selectedStudent)) {
-                    continue;
-                }
-
-                // Add data
-                if (!attendanceData.containsKey(student)) {
-                    attendanceData.put(student, new ArrayList<>());
-                }
-
-                // Find index of this date
-                int dateIndex = dateLabels.indexOf(dateStr);
-
-                // Ensure list has enough space
-                while (attendanceData.get(student).size() <= dateIndex) {
-                    attendanceData.get(student).add(0); // Fill with zeros for missing dates
-                }
-
-                // Set the actual value
-                attendanceData.get(student).set(dateIndex, attendancePercent);
+            LocalDate currentDate = startDate;
+            while (!currentDate.isAfter(endDate)) {
+                dateLabels.add(formatter.format(currentDate));
+                currentDate = currentDate.plusDays(1);
             }
 
-            // Calculate summary statistics
-            updateSummaryPanel();
+            debug("Generated " + dateLabels.size() + " date labels");
 
+            // Load attendance data
+            List<Attendance> allAttendance = attendanceDAO.getAllAttendance();
+            debug("Retrieved " + allAttendance.size() + " attendance records from database");
+
+            // Filter attendance records based on selected criteria
+            List<Attendance> filteredAttendance = allAttendance.stream()
+                    .filter(a -> a.getDate().isAfter(startDate.minusDays(1)) && !a.getDate().isAfter(endDate))
+                    .filter(a -> selectedStudentId == -1 || a.getStudentId().equals(selectedStudentId))
+                    .filter(a -> selectedSubjectId == -1 || a.getSubjectId().equals(selectedSubjectId))
+                    .collect(Collectors.toList());
+
+            debug("Filtered to " + filteredAttendance.size() + " relevant attendance records");
+
+            // Process attendance data
+            attendanceData = new HashMap<>();
+
+            if (selectedStudentId == -1) {
+                // For "All Students", group by student
+                Map<Integer, String> studentNames = new HashMap<>();
+                for (Student student : studentDAO.getAllStudents()) {
+                    studentNames.put(student.getStudentId(), student.getName());
+                }
+
+                // Group attendance by student
+                Map<Integer, List<Attendance>> attendanceByStudent = filteredAttendance.stream()
+                        .collect(Collectors.groupingBy(Attendance::getStudentId));
+
+                // Process each student's attendance
+                for (Map.Entry<Integer, List<Attendance>> entry : attendanceByStudent.entrySet()) {
+                    int studentId = entry.getKey();
+                    List<Attendance> studentAttendance = entry.getValue();
+                    String studentName = studentNames.getOrDefault(studentId, "Student " + studentId);
+
+                    List<Double> attendancePercentages = calculateAttendancePercentages(studentAttendance, startDate, endDate);
+                    attendanceData.put(studentName, attendancePercentages);
+                }
+            } else {
+                // For a specific student, process their attendance
+                String studentName = "";
+                for (int i = 0; i < studentComboBox.getItemCount(); i++) {
+                    ComboItem<Integer> item = (ComboItem<Integer>) studentComboBox.getItemAt(i);
+                    if (item.getValue().equals(selectedStudentId)) {
+                        studentName = item.toString();
+                        break;
+                    }
+                }
+
+                List<Double> attendancePercentages = calculateAttendancePercentages(filteredAttendance, startDate, endDate);
+                attendanceData.put(studentName, attendancePercentages);
+            }
+
+
+
+            debug("Attendance data processed successfully");
         } catch (Exception e) {
+            debug("Error loading database data: " + e.getMessage());
             e.printStackTrace();
-            statusLabel.setText("Error loading data: " + e.getMessage());
+
+            // Show error message
+            JOptionPane.showMessageDialog(
+                    this,
+                    "Error loading data: " + e.getMessage(),
+                    "Database Error",
+                    JOptionPane.ERROR_MESSAGE
+            );
+
+            // Initialize empty data
+            dateLabels = new ArrayList<>();
+            attendanceData = new HashMap<>();
         }
-        */
     }
+
+    private List<Double> calculateAttendancePercentages(List<Attendance> attendanceRecords, LocalDate startDate, LocalDate endDate) {
+        // Initialize result list with zeros for each day
+        long daysBetween = ChronoUnit.DAYS.between(startDate, endDate) + 1; // Include end date
+        List<Double> percentages = new ArrayList<>(Collections.nCopies((int) daysBetween, 0.0));
+
+        // Count total records and present records for each day
+        Map<LocalDate, Integer> totalRecords = new HashMap<>();
+        Map<LocalDate, Integer> presentRecords = new HashMap<>();
+
+        for (Attendance record : attendanceRecords) {
+            LocalDate date = record.getDate();
+            if (!date.isBefore(startDate) && !date.isAfter(endDate)) {
+                totalRecords.put(date, totalRecords.getOrDefault(date, 0) + 1);
+                if (record.isPresent()) {
+                    presentRecords.put(date, presentRecords.getOrDefault(date, 0) + 1);
+                }
+            }
+        }
+
+        // Calculate percentages for days with records
+        for (int i = 0; i < daysBetween; i++) {
+            LocalDate currentDate = startDate.plusDays(i);
+            int total = totalRecords.getOrDefault(currentDate, 0);
+
+            if (total > 0) {
+                int present = presentRecords.getOrDefault(currentDate, 0);
+                double percentage = (double) present / total * 100.0;
+                percentages.set(i, percentage);
+            } else {
+                // If no records for this date, mark as -1 (missing data)
+                percentages.set(i, -1.0);
+            }
+        }
+
+        return percentages;
+    }
+
+
 
     public static void main(String[] args) {
         try {
+            // Set look and feel to the system look and feel
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {
             e.printStackTrace();

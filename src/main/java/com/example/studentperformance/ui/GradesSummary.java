@@ -1,467 +1,284 @@
 package com.example.studentperformance.ui;
 
+import com.example.studentperformance.DatabaseConnection;
+import com.example.studentperformance.dao.*;
+import com.example.studentperformance.dao.GradeDAOImpl;
+import com.example.studentperformance.dao.StudentDAOImpl;
+import com.example.studentperformance.dao.SubjectDAOImpl;
+
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.sql.Connection;
 import java.util.*;
-import org.jfree.chart.*;
-import org.jfree.chart.plot.*;
-import javax.swing.border.TitledBorder;
-import org.jfree.data.category.*;
-import org.jfree.chart.renderer.category.*;
+import java.util.List;
+import java.util.stream.Collectors;
 
-import org.jfree.chart.labels.*;
-import org.jfree.chart.axis.*;
+import org.jfree.chart.ChartFactory;
+import org.jfree.chart.ChartPanel;
+import org.jfree.chart.JFreeChart;
+import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.chart.plot.CategoryPlot;
+import org.jfree.chart.renderer.category.BarRenderer;
+import org.jfree.data.category.DefaultCategoryDataset;
+import org.jfree.data.general.DefaultPieDataset;
 
 public class GradesSummary extends JFrame {
-    // Colors matching the main UI theme
-    private static final Color PRIMARY_COLOR = new Color(65, 105, 225);  // Royal Blue
-    private static final Color SECONDARY_COLOR = new Color(70, 130, 180); // Steel Blue
-    private static final Color BACKGROUND_COLOR = new Color(240, 248, 255); // Alice Blue
-    private static final Color TEXT_COLOR = new Color(25, 25, 112); // Midnight Blue
-    private static final Color GOOD_PERFORMANCE = new Color(46, 139, 87); // Sea Green
-    private static final Color BAD_PERFORMANCE = new Color(178, 34, 34);  // Firebrick Red
-    private static final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD, 18);
-    private static final Font LABEL_FONT = new Font("Segoe UI", Font.PLAIN, 14);
-    private static final Font STATS_FONT = new Font("Segoe UI", Font.BOLD, 16);
+    private Connection dbConnection;
+    private GradeDAO gradeDAO;
+    private StudentDAO studentDAO;
+    private SubjectDAO subjectDAO;
+    private AttendanceDAO attendanceDAO;
+    private JTabbedPane tabbedPane;
+    private JPanel overviewPanel;
+    private JPanel studentPanel;
+    private JPanel subjectPanel;
+    private JPanel distributionPanel;
 
-    // Mock data for demonstration
-    private final String[] subjects = {"Mathematics", "English", "Science", "History", "Art"};
-    private final String[] students = {"Alex Smith", "Jamie Johnson", "Casey Wilson", "Morgan Lee", "Taylor Brown"};
-    private final Random random = new Random(123); // Fixed seed for consistent results
+    private JComboBox<StudentDAO.Student> studentSelector;
+    private JComboBox<SubjectDAO.Subject> subjectSelector;
 
-    // Store grades data - indexed by [student][subject][period]
-    // period 0 = previous term, period 1 = current term
-    private final int[][][] gradesData;
+    // For distribution panel
+    private JComboBox<SubjectDAO.Subject> distributionSubjectSelector;
+    private JComboBox<String> distributionViewSelector;
 
-    // UI Components
-    private JComboBox<String> studentDropdown;
-    private JComboBox<String> subjectDropdown;
-    private JPanel statisticsPanel;
-    private JPanel chartPanel;
+    // For subject panel
+    private JComboBox<String> gradeRangeSelector;
 
+    /**
+     * Constructor that initializes the analytics dashboard with just a database connection
+     */
     public GradesSummary() {
-        // Initialize grades data
-        gradesData = new int[students.length][subjects.length][2];
-        generateGradesData();
+        this.dbConnection = DatabaseConnection.getConnection();
 
-        initUI();
+        // Initialize DAOs
+        initializeDAOs();
+
+        // Setup UI components
+        setupUI();
+
+        // Load data and refresh charts
+        refreshData();
     }
 
-    private void generateGradesData() {
-        for (int i = 0; i < students.length; i++) {
-            for (int j = 0; j < subjects.length; j++) {
-                // Previous term grades (60-95)
-                gradesData[i][j][0] = 60 + random.nextInt(36);
-
-                // Current term grades with some variance (-10 to +15 from previous)
-                int change = random.nextInt(26) - 10;
-                int newGrade = gradesData[i][j][0] + change;
-                // Keep within 60-100 range
-                gradesData[i][j][1] = Math.max(60, Math.min(100, newGrade));
-            }
+    private void initializeDAOs() {
+        try {
+            // Assuming implementation classes exist with these names and constructors
+            gradeDAO = new GradeDAOImpl(dbConnection);
+            studentDAO = new StudentDAOImpl(dbConnection);
+            subjectDAO = new SubjectDAOImpl(dbConnection);
+            attendanceDAO = new AttendanceDAOImpl(dbConnection);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error initializing data access: " + e.getMessage(),
+                    "Database Error",
+                    JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
         }
     }
 
-    private void initUI() {
-        setTitle("Grades Summary");
-        setDefaultCloseOperation(JFrame.DISPOSE_ON_CLOSE);
-        setSize(1000, 750);
+    private void setupUI() {
+        setTitle("Student Grades Analytics");
+        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setSize(900, 600);
         setLocationRelativeTo(null);
 
-        // Main panel with gradient background
-        JPanel mainPanel = new JPanel() {
+        tabbedPane = new JTabbedPane();
+
+        // Create panels for different analytics views
+        overviewPanel = new JPanel(new BorderLayout());
+        studentPanel = new JPanel(new BorderLayout());
+        subjectPanel = new JPanel(new BorderLayout());
+        distributionPanel = new JPanel(new BorderLayout());
+
+        // Setup control panels for each tab
+        setupOverviewPanel();
+        setupStudentPanel();
+        setupSubjectPanel();
+        setupDistributionPanel();
+
+        // Add tabs
+        tabbedPane.addTab("Overview", overviewPanel);
+        tabbedPane.addTab("Student Performance", studentPanel);
+        tabbedPane.addTab("Subject Analysis", subjectPanel);
+        tabbedPane.addTab("Grade Distribution", distributionPanel);
+
+        add(tabbedPane);
+    }
+
+    private void setupOverviewPanel() {
+        // Overview panel doesn't need additional controls
+        JPanel controlPanel = new JPanel();
+        JButton refreshBtn = new JButton("Refresh");
+        refreshBtn.addActionListener(e -> {
+            try {
+                updateOverviewChart();
+            } catch (Exception ex) {
+                handleError("Error refreshing overview chart", ex);
+            }
+        });
+        controlPanel.add(refreshBtn);
+        overviewPanel.add(controlPanel, BorderLayout.NORTH);
+    }
+
+    private void setupStudentPanel() {
+        JPanel studentControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        // Student selector
+        studentSelector = new JComboBox<>();
+        studentControlPanel.add(new JLabel("Select Student:"));
+        studentControlPanel.add(studentSelector);
+
+        // Add action listener to update chart when selection changes
+        studentSelector.addActionListener(e -> updateStudentChart());
+
+        studentPanel.add(studentControlPanel, BorderLayout.NORTH);
+    }
+
+    private void setupSubjectPanel() {
+        JPanel subjectControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        // Subject selector
+        subjectSelector = new JComboBox<>();
+        subjectControlPanel.add(new JLabel("Select Subject:"));
+        subjectControlPanel.add(subjectSelector);
+
+        // Grade range filter
+        gradeRangeSelector = new JComboBox<>(new String[]{"All Grades", "Above 90", "80-89", "70-79", "60-69", "Below 60"});
+        subjectControlPanel.add(new JLabel("Grade Range:"));
+        subjectControlPanel.add(gradeRangeSelector);
+
+        // Add action listeners to update chart when selections change
+        subjectSelector.addActionListener(e -> updateSubjectChart());
+        gradeRangeSelector.addActionListener(e -> updateSubjectChart());
+
+        subjectPanel.add(subjectControlPanel, BorderLayout.NORTH);
+    }
+
+    private void setupDistributionPanel() {
+        JPanel distributionControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+
+        // Subject filter for distribution
+        distributionSubjectSelector = new JComboBox<>();
+        distributionSubjectSelector.addItem(null); // Add null option for "All Subjects"
+        distributionControlPanel.add(new JLabel("Filter by Subject:"));
+        distributionControlPanel.add(distributionSubjectSelector);
+
+        // View type selector
+        distributionViewSelector = new JComboBox<>(new String[]{"Pie Chart", "Bar Chart"});
+        distributionControlPanel.add(new JLabel("View Type:"));
+        distributionControlPanel.add(distributionViewSelector);
+
+        // Add action listeners to update chart when selections change
+        distributionSubjectSelector.addActionListener(e -> updateDistributionChart());
+        distributionViewSelector.addActionListener(e -> updateDistributionChart());
+
+        distributionPanel.add(distributionControlPanel, BorderLayout.NORTH);
+    }
+
+    private void refreshData() {
+        try {
+            // Load students and subjects for dropdowns
+            updateSelectors();
+
+            // Update all charts
+            updateOverviewChart();
+            updateStudentChart();
+            updateSubjectChart();
+            updateDistributionChart();
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this,
+                    "Error loading data: " + e.getMessage(),
+                    "Data Error",
+                    JOptionPane.ERROR_MESSAGE);
+            e.printStackTrace();
+        }
+    }
+
+    private void updateSelectors() throws Exception {
+        // Clear existing items
+        studentSelector.removeAllItems();
+        subjectSelector.removeAllItems();
+        distributionSubjectSelector.removeAllItems();
+
+        // Add null option for "All Subjects" in distribution selector
+        distributionSubjectSelector.addItem(null);
+
+        // Add students to selector
+        List<StudentDAO.Student> students = studentDAO.getAllStudents();
+        for (StudentDAO.Student student : students) {
+            studentSelector.addItem(student);
+        }
+
+        // Add subjects to selector
+        List<SubjectDAO.Subject> subjects = subjectDAO.getAllSubjects();
+        for (SubjectDAO.Subject subject : subjects) {
+            subjectSelector.addItem(subject);
+            distributionSubjectSelector.addItem(subject);
+        }
+
+        // Set renderers for displaying names instead of object references
+        studentSelector.setRenderer(new DefaultListCellRenderer() {
             @Override
-            protected void paintComponent(Graphics g) {
-                super.paintComponent(g);
-                Graphics2D g2d = (Graphics2D) g.create();
-                g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
-
-                int w = getWidth();
-                int h = getHeight();
-                GradientPaint gp = new GradientPaint(0, 0, BACKGROUND_COLOR, 0, h, new Color(230, 240, 250));
-                g2d.setPaint(gp);
-                g2d.fillRect(0, 0, w, h);
-                g2d.dispose();
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                if (value instanceof StudentDAO.Student) {
+                    value = ((StudentDAO.Student) value).getName();
+                }
+                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             }
-        };
-        mainPanel.setLayout(new BorderLayout(10, 10));
-        mainPanel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+        });
 
-        // Header panel
-        JPanel headerPanel = createHeaderPanel();
-        mainPanel.add(headerPanel, BorderLayout.NORTH);
+        subjectSelector.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                if (value instanceof SubjectDAO.Subject) {
+                    value = ((SubjectDAO.Subject) value).getName();
+                }
+                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            }
+        });
 
-        // Selection panel
-        JPanel selectionPanel = createSelectionPanel();
-        mainPanel.add(selectionPanel, BorderLayout.WEST);
-
-        // Statistics panel
-        statisticsPanel = new JPanel();
-        statisticsPanel.setOpaque(false);
-        statisticsPanel.setLayout(new BorderLayout());
-        statisticsPanel.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
-        mainPanel.add(statisticsPanel, BorderLayout.EAST);
-
-        // Chart panel
-        chartPanel = new JPanel();
-        chartPanel.setOpaque(false);
-        chartPanel.setLayout(new BorderLayout());
-        mainPanel.add(chartPanel, BorderLayout.CENTER);
-
-        // Initialize with overall view
-        updateChartAndStats(null, null);
-
-        setContentPane(mainPanel);
+        distributionSubjectSelector.setRenderer(new DefaultListCellRenderer() {
+            @Override
+            public Component getListCellRendererComponent(JList<?> list, Object value, int index, boolean isSelected, boolean cellHasFocus) {
+                if (value == null) {
+                    value = "All Subjects";
+                } else if (value instanceof SubjectDAO.Subject) {
+                    value = ((SubjectDAO.Subject) value).getName();
+                }
+                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            }
+        });
     }
 
-    private JPanel createHeaderPanel() {
-        JPanel headerPanel = new JPanel(new BorderLayout(10, 10));
-        headerPanel.setOpaque(false);
-
-        JLabel titleLabel = new JLabel("Student Performance Dashboard");
-        titleLabel.setFont(TITLE_FONT);
-        titleLabel.setForeground(TEXT_COLOR);
-        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-        JLabel subtitleLabel = new JLabel("Academic Year 2024-2025");
-        subtitleLabel.setFont(LABEL_FONT);
-        subtitleLabel.setForeground(TEXT_COLOR);
-        subtitleLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-        JPanel labelPanel = new JPanel(new GridLayout(2, 1));
-        labelPanel.setOpaque(false);
-        labelPanel.add(titleLabel);
-        labelPanel.add(subtitleLabel);
-
-        headerPanel.add(labelPanel, BorderLayout.CENTER);
-
-        return headerPanel;
-    }
-
-    private JPanel createSelectionPanel() {
-        JPanel selectionPanel = new JPanel();
-        selectionPanel.setLayout(new BoxLayout(selectionPanel, BoxLayout.Y_AXIS));
-        selectionPanel.setOpaque(false);
-        selectionPanel.setBorder(BorderFactory.createEmptyBorder(10, 0, 10, 10));
-        selectionPanel.setPreferredSize(new Dimension(200, 600));
-
-        // Student selection
-        JLabel studentLabel = new JLabel("Select Student:");
-        studentLabel.setFont(LABEL_FONT);
-        studentLabel.setForeground(TEXT_COLOR);
-        studentLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        Vector<String> studentItems = new Vector<>();
-        studentItems.add("All Students");
-        studentItems.addAll(Arrays.asList(students));
-
-        studentDropdown = new JComboBox<>(studentItems);
-        studentDropdown.setFont(LABEL_FONT);
-        studentDropdown.setBackground(Color.WHITE);
-        studentDropdown.setForeground(TEXT_COLOR);
-        studentDropdown.setAlignmentX(Component.LEFT_ALIGNMENT);
-        studentDropdown.setMaximumSize(new Dimension(200, 30));
-
-        // Subject selection
-        JLabel subjectLabel = new JLabel("Select Subject:");
-        subjectLabel.setFont(LABEL_FONT);
-        subjectLabel.setForeground(TEXT_COLOR);
-        subjectLabel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        Vector<String> subjectItems = new Vector<>();
-        subjectItems.add("All Subjects");
-        subjectItems.addAll(Arrays.asList(subjects));
-
-        subjectDropdown = new JComboBox<>(subjectItems);
-        subjectDropdown.setFont(LABEL_FONT);
-        subjectDropdown.setBackground(Color.WHITE);
-        subjectDropdown.setForeground(TEXT_COLOR);
-        subjectDropdown.setAlignmentX(Component.LEFT_ALIGNMENT);
-        subjectDropdown.setMaximumSize(new Dimension(200, 30));
-
-        // Add action listeners
-        studentDropdown.addActionListener(e -> updateSelection());
-        subjectDropdown.addActionListener(e -> updateSelection());
-
-        // Add some spacing
-        selectionPanel.add(Box.createVerticalStrut(20));
-        selectionPanel.add(studentLabel);
-        selectionPanel.add(Box.createVerticalStrut(5));
-        selectionPanel.add(studentDropdown);
-        selectionPanel.add(Box.createVerticalStrut(20));
-        selectionPanel.add(subjectLabel);
-        selectionPanel.add(Box.createVerticalStrut(5));
-        selectionPanel.add(subjectDropdown);
-
-        return selectionPanel;
-    }
-
-    private void updateSelection() {
-        String selectedStudent = studentDropdown.getSelectedIndex() == 0 ? null :
-                (String) studentDropdown.getSelectedItem();
-        String selectedSubject = subjectDropdown.getSelectedIndex() == 0 ? null :
-                (String) subjectDropdown.getSelectedItem();
-
-        updateChartAndStats(selectedStudent, selectedSubject);
-    }
-
-    private void updateChartAndStats(String selectedStudent, String selectedSubject) {
-        // Clear existing components
-        statisticsPanel.removeAll();
-        chartPanel.removeAll();
-
-        if (selectedStudent == null && selectedSubject == null) {
-            // Show overall statistics
-            showOverallStatistics();
-        } else if (selectedStudent != null && selectedSubject != null) {
-            // Show specific student and subject
-            showSpecificStudentSubject(selectedStudent, selectedSubject);
-        } else if (selectedStudent != null) {
-            // Show all subjects for specific student
-            showStudentAllSubjects(selectedStudent);
-        } else {
-            // Show all students for specific subject
-            showSubjectAllStudents(selectedSubject);
+    private void updateOverviewChart() throws Exception {
+        // Calculate average grades by subject
+        Map<Integer, String> subjectIdToName = new HashMap<>();
+        for (SubjectDAO.Subject subject : subjectDAO.getAllSubjects()) {
+            subjectIdToName.put(subject.getSubjectId(), subject.getName());
         }
 
-        // Refresh UI
-        statisticsPanel.revalidate();
-        statisticsPanel.repaint();
-        chartPanel.revalidate();
-        chartPanel.repaint();
-    }
-
-    private void showOverallStatistics() {
-        // Create overall chart
-        JFreeChart overallChart = createOverallChart();
-        ChartPanel overallChartPanel = new ChartPanel(overallChart);
-        overallChartPanel.setPreferredSize(new Dimension(600, 500));
-        chartPanel.add(overallChartPanel, BorderLayout.CENTER);
-
-        // Add overall statistics panel
-        JPanel statsContent = new JPanel();
-        statsContent.setLayout(new BoxLayout(statsContent, BoxLayout.Y_AXIS));
-        statsContent.setOpaque(false);
-        statsContent.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(SECONDARY_COLOR, 2, true),
-                        "Overall Statistics",
-                        TitledBorder.LEFT,
-                        TitledBorder.TOP,
-                        TITLE_FONT,
-                        TEXT_COLOR
-                ),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-
-        // Calculate overall statistics
-        double avgImprovement = calculateOverallImprovement();
-        String improvementText = String.format("%.2f%%", avgImprovement);
-        Color improvementColor = avgImprovement >= 0 ? GOOD_PERFORMANCE : BAD_PERFORMANCE;
-
-        // Add statistics components
-        addStatLabel(statsContent, "Class Average (Current):", calculateOverallAverage(1) + "%");
-        addStatLabel(statsContent, "Class Average (Previous):", calculateOverallAverage(0) + "%");
-        addStatLabel(statsContent, "Overall Improvement:", improvementText, improvementColor);
-        addStatLabel(statsContent, "Top Subject:", findTopSubject());
-        addStatLabel(statsContent, "Top Student:", findTopStudent());
-
-        statisticsPanel.add(statsContent, BorderLayout.NORTH);
-    }
-
-    private void showSpecificStudentSubject(String student, String subject) {
-        int studentIndex = Arrays.asList(students).indexOf(student);
-        int subjectIndex = Arrays.asList(subjects).indexOf(subject);
-
-        // Get previous and current grades
-        int prevGrade = gradesData[studentIndex][subjectIndex][0];
-        int currGrade = gradesData[studentIndex][subjectIndex][1];
-        double improvement = ((double)currGrade - prevGrade) / prevGrade * 100;
-
-        // Create bar chart for this specific student and subject
-        JFreeChart chart = createSpecificChart(student, subject, prevGrade, currGrade);
-        ChartPanel chartPanelComponent = new ChartPanel(chart);
-        chartPanelComponent.setPreferredSize(new Dimension(600, 500));
-        chartPanel.add(chartPanelComponent, BorderLayout.CENTER);
-
-        // Create statistics panel
-        JPanel statsContent = new JPanel();
-        statsContent.setLayout(new BoxLayout(statsContent, BoxLayout.Y_AXIS));
-        statsContent.setOpaque(false);
-        statsContent.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(SECONDARY_COLOR, 2, true),
-                        student + " - " + subject,
-                        TitledBorder.LEFT,
-                        TitledBorder.TOP,
-                        TITLE_FONT,
-                        TEXT_COLOR
-                ),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-
-        // Add performance information
-        addStatLabel(statsContent, "Current Grade:", currGrade + "%");
-        addStatLabel(statsContent, "Previous Grade:", prevGrade + "%");
-
-        String changeSign = improvement >= 0 ? "+" : "";
-        String improvementText = changeSign + String.format("%.2f%%", improvement);
-        Color improvementColor = improvement >= 0 ? GOOD_PERFORMANCE : BAD_PERFORMANCE;
-
-        addStatLabel(statsContent, "Improvement:", improvementText, improvementColor);
-
-        // Add comparison to class average
-        double classAvg = calculateSubjectAverage(subjectIndex, 1);
-        String comparisonText = String.format("%.2f%%", currGrade - classAvg);
-        String comparisonPrefix = currGrade >= classAvg ? "+" : "";
-        Color comparisonColor = currGrade >= classAvg ? GOOD_PERFORMANCE : BAD_PERFORMANCE;
-
-        addStatLabel(statsContent, "vs. Class Average:", comparisonPrefix + comparisonText, comparisonColor);
-
-        statisticsPanel.add(statsContent, BorderLayout.NORTH);
-    }
-
-    private void showStudentAllSubjects(String student) {
-        int studentIndex = Arrays.asList(students).indexOf(student);
-
-        // Create chart for student across all subjects
-        JFreeChart chart = createStudentChart(student);
-        ChartPanel chartPanelComponent = new ChartPanel(chart);
-        chartPanelComponent.setPreferredSize(new Dimension(600, 500));
-        chartPanel.add(chartPanelComponent, BorderLayout.CENTER);
-
-        // Create statistics panel
-        JPanel statsContent = new JPanel();
-        statsContent.setLayout(new BoxLayout(statsContent, BoxLayout.Y_AXIS));
-        statsContent.setOpaque(false);
-        statsContent.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(SECONDARY_COLOR, 2, true),
-                        student + " - Performance Summary",
-                        TitledBorder.LEFT,
-                        TitledBorder.TOP,
-                        TITLE_FONT,
-                        TEXT_COLOR
-                ),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-
-        // Calculate student statistics
-        double avgCurrent = calculateStudentAverage(studentIndex, 1);
-        double avgPrevious = calculateStudentAverage(studentIndex, 0);
-        double improvement = (avgCurrent - avgPrevious) / avgPrevious * 100;
-
-        // Add statistics
-        addStatLabel(statsContent, "Current Average:", String.format("%.1f%%", avgCurrent));
-        addStatLabel(statsContent, "Previous Average:", String.format("%.1f%%", avgPrevious));
-
-        String changeSign = improvement >= 0 ? "+" : "";
-        String improvementText = changeSign + String.format("%.2f%%", improvement);
-        Color improvementColor = improvement >= 0 ? GOOD_PERFORMANCE : BAD_PERFORMANCE;
-
-        addStatLabel(statsContent, "Overall Improvement:", improvementText, improvementColor);
-
-        // Best and worst subjects
-        String bestSubject = findBestSubject(studentIndex);
-        String worstSubject = findWorstSubject(studentIndex);
-
-        addStatLabel(statsContent, "Strongest Subject:", bestSubject);
-        addStatLabel(statsContent, "Needs Improvement:", worstSubject);
-
-        statisticsPanel.add(statsContent, BorderLayout.NORTH);
-    }
-
-    private void showSubjectAllStudents(String subject) {
-        int subjectIndex = Arrays.asList(subjects).indexOf(subject);
-
-        // Create chart for subject across all students
-        JFreeChart chart = createSubjectChart(subject);
-        ChartPanel chartPanelComponent = new ChartPanel(chart);
-        chartPanelComponent.setPreferredSize(new Dimension(600, 500));
-        chartPanel.add(chartPanelComponent, BorderLayout.CENTER);
-
-        // Create statistics panel
-        JPanel statsContent = new JPanel();
-        statsContent.setLayout(new BoxLayout(statsContent, BoxLayout.Y_AXIS));
-        statsContent.setOpaque(false);
-        statsContent.setBorder(BorderFactory.createCompoundBorder(
-                BorderFactory.createTitledBorder(
-                        BorderFactory.createLineBorder(SECONDARY_COLOR, 2, true),
-                        subject + " - Class Performance",
-                        TitledBorder.LEFT,
-                        TitledBorder.TOP,
-                        TITLE_FONT,
-                        TEXT_COLOR
-                ),
-                BorderFactory.createEmptyBorder(10, 10, 10, 10)
-        ));
-
-        // Calculate subject statistics
-        double avgCurrent = calculateSubjectAverage(subjectIndex, 1);
-        double avgPrevious = calculateSubjectAverage(subjectIndex, 0);
-        double improvement = (avgCurrent - avgPrevious) / avgPrevious * 100;
-
-        // Add statistics
-        addStatLabel(statsContent, "Class Average (Current):", String.format("%.1f%%", avgCurrent));
-        addStatLabel(statsContent, "Class Average (Previous):", String.format("%.1f%%", avgPrevious));
-
-        String changeSign = improvement >= 0 ? "+" : "";
-        String improvementText = changeSign + String.format("%.2f%%", improvement);
-        Color improvementColor = improvement >= 0 ? GOOD_PERFORMANCE : BAD_PERFORMANCE;
-
-        addStatLabel(statsContent, "Class Improvement:", improvementText, improvementColor);
-
-        // Top and bottom performers
-        String topStudent = findTopPerformer(subjectIndex);
-        String bottomStudent = findBottomPerformer(subjectIndex);
-
-        addStatLabel(statsContent, "Top Performer:", topStudent);
-        addStatLabel(statsContent, "Needs Support:", bottomStudent);
-
-        statisticsPanel.add(statsContent, BorderLayout.NORTH);
-    }
-
-    private void addStatLabel(JPanel panel, String label, String value) {
-        addStatLabel(panel, label, value, TEXT_COLOR);
-    }
-
-    private void addStatLabel(JPanel panel, String label, String value, Color valueColor) {
-        JPanel statPanel = new JPanel(new BorderLayout(10, 0));
-        statPanel.setOpaque(false);
-        statPanel.setMaximumSize(new Dimension(300, 35));
-        statPanel.setAlignmentX(Component.LEFT_ALIGNMENT);
-
-        JLabel labelComponent = new JLabel(label);
-        labelComponent.setFont(LABEL_FONT);
-        labelComponent.setForeground(TEXT_COLOR);
-
-        JLabel valueComponent = new JLabel(value);
-        valueComponent.setFont(STATS_FONT);
-        valueComponent.setForeground(valueColor);
-
-        statPanel.add(labelComponent, BorderLayout.WEST);
-        statPanel.add(valueComponent, BorderLayout.EAST);
-
-        panel.add(statPanel);
-        panel.add(Box.createVerticalStrut(10));
-    }
-
-    // Chart creation methods
-    private JFreeChart createOverallChart() {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
-        // Add current term data for each student in each subject
-        for (int i = 0; i < students.length; i++) {
-            for (int j = 0; j < subjects.length; j++) {
-                dataset.addValue(gradesData[i][j][1], students[i], subjects[j]);
+        Map<Integer, List<Double>> gradesBySubject = new HashMap<>();
+        for (GradeDAO.Grade grade : gradeDAO.getAllGrades()) {
+            if (!gradesBySubject.containsKey(grade.getSubjectId())) {
+                gradesBySubject.put(grade.getSubjectId(), new ArrayList<>());
             }
+            gradesBySubject.get(grade.getSubjectId()).add(grade.getGrade());
+        }
+
+        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+        for (Map.Entry<Integer, List<Double>> entry : gradesBySubject.entrySet()) {
+            Integer subjectId = entry.getKey();
+            List<Double> grades = entry.getValue();
+            double average = grades.stream().mapToDouble(Double::doubleValue).average().orElse(0.0);
+            dataset.addValue(average, "Average Grade", subjectIdToName.getOrDefault(subjectId, "Unknown"));
         }
 
         JFreeChart chart = ChartFactory.createBarChart(
-                "Overall Student Performance (Current Term)",
-                "Subjects",
-                "Grade",
+                "Average Grades by Subject",
+                "Subject",
+                "Average Grade",
                 dataset,
                 PlotOrientation.VERTICAL,
                 true,
@@ -469,288 +286,306 @@ public class GradesSummary extends JFrame {
                 false
         );
 
-        customizeChart(chart);
-        return chart;
-    }
-
-    private JFreeChart createSpecificChart(String student, String subject, int prevGrade, int currGrade) {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-
-        dataset.addValue(prevGrade, "Previous Term", student);
-        dataset.addValue(currGrade, "Current Term", student);
-
-        JFreeChart chart = ChartFactory.createBarChart(
-                subject + " - Performance Comparison",
-                "Term",
-                "Grade",
-                dataset,
-                PlotOrientation.VERTICAL,
-                true,
-                true,
-                false
-        );
-
-        customizeChart(chart);
-
-        // Additional customization for this specific chart
+        // Customize chart appearance
         CategoryPlot plot = chart.getCategoryPlot();
         BarRenderer renderer = (BarRenderer) plot.getRenderer();
+        renderer.setSeriesPaint(0, new Color(79, 129, 189));
 
-        renderer.setSeriesPaint(0, SECONDARY_COLOR);
-        renderer.setSeriesPaint(1, PRIMARY_COLOR);
+        // Create and add chart panel to overview tab
+        ChartPanel chartPanel = new ChartPanel(chart);
+        chartPanel.setPreferredSize(new Dimension(800, 500));
 
-        return chart;
-    }
-
-    private JFreeChart createStudentChart(String student) {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-        int studentIndex = Arrays.asList(students).indexOf(student);
-
-        // Add both previous and current term data for all subjects
-        for (int j = 0; j < subjects.length; j++) {
-            dataset.addValue(gradesData[studentIndex][j][0], "Previous Term", subjects[j]);
-            dataset.addValue(gradesData[studentIndex][j][1], "Current Term", subjects[j]);
-        }
-
-        JFreeChart chart = ChartFactory.createBarChart(
-                student + " - Performance Across Subjects",
-                "Subjects",
-                "Grade",
-                dataset,
-                PlotOrientation.VERTICAL,
-                true,
-                true,
-                false
-        );
-
-        customizeChart(chart);
-
-        // Additional customization
-        CategoryPlot plot = chart.getCategoryPlot();
-        BarRenderer renderer = (BarRenderer) plot.getRenderer();
-
-        renderer.setSeriesPaint(0, SECONDARY_COLOR);
-        renderer.setSeriesPaint(1, PRIMARY_COLOR);
-
-        return chart;
-    }
-
-    private JFreeChart createSubjectChart(String subject) {
-        DefaultCategoryDataset dataset = new DefaultCategoryDataset();
-        int subjectIndex = Arrays.asList(subjects).indexOf(subject);
-
-        // Add both previous and current term data for all students
-        for (int i = 0; i < students.length; i++) {
-            dataset.addValue(gradesData[i][subjectIndex][0], "Previous Term", students[i]);
-            dataset.addValue(gradesData[i][subjectIndex][1], "Current Term", students[i]);
-        }
-
-        JFreeChart chart = ChartFactory.createBarChart(
-                subject + " - Student Performance",
-                "Students",
-                "Grade",
-                dataset,
-                PlotOrientation.VERTICAL,
-                true,
-                true,
-                false
-        );
-
-        customizeChart(chart);
-
-        // Additional customization
-        CategoryPlot plot = chart.getCategoryPlot();
-        BarRenderer renderer = (BarRenderer) plot.getRenderer();
-
-        renderer.setSeriesPaint(0, SECONDARY_COLOR);
-        renderer.setSeriesPaint(1, PRIMARY_COLOR);
-
-        // Rotate student labels for better visibility
-        CategoryAxis domainAxis = plot.getDomainAxis();
-        domainAxis.setCategoryLabelPositions(CategoryLabelPositions.UP_45);
-
-        return chart;
-    }
-
-    private void customizeChart(JFreeChart chart) {
-        CategoryPlot plot = chart.getCategoryPlot();
-
-        // Background
-        chart.setBackgroundPaint(BACKGROUND_COLOR);
-        plot.setBackgroundPaint(new Color(245, 250, 255));
-
-        // Grid lines
-        plot.setDomainGridlinePaint(Color.LIGHT_GRAY);
-        plot.setRangeGridlinePaint(Color.LIGHT_GRAY);
-
-        // Bar renderer
-        BarRenderer renderer = (BarRenderer) plot.getRenderer();
-        renderer.setItemMargin(0.1);
-
-
-        for (int i = 0; i < students.length; i++) {
-            int red = clamp(PRIMARY_COLOR.getRed() + (i * 30) % 100);
-            int green = clamp(PRIMARY_COLOR.getGreen() + (i * 20) % 100);
-            int blue = clamp(PRIMARY_COLOR.getBlue() + (i * 10) % 100);
-
-            Color color = new Color(red, green, blue);
-            renderer.setSeriesPaint(i, color);
-        }
-
-        // Axis customization
-        CategoryAxis domainAxis = plot.getDomainAxis();
-        NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
-
-        domainAxis.setTickLabelFont(new Font("Segoe UI", Font.PLAIN, 12));
-        domainAxis.setLabelFont(new Font("Segoe UI", Font.BOLD, 14));
-
-        rangeAxis.setRange(0, 100);
-        rangeAxis.setTickLabelFont(new Font("Segoe UI", Font.PLAIN, 12));
-        rangeAxis.setLabelFont(new Font("Segoe UI", Font.BOLD, 14));
-    }
-
-    private int clamp(int value) {
-        return Math.max(0, Math.min(255, value));
-    }
-
-    // Statistics calculation methods
-    private double calculateOverallAverage(int period) {
-        double sum = 0;
-        int count = 0;
-
-        for (int i = 0; i < students.length; i++) {
-            for (int j = 0; j < subjects.length; j++) {
-                sum += gradesData[i][j][period];
-                count++;
+        // Remove existing chart if any
+        for (Component comp : overviewPanel.getComponents()) {
+            if (comp instanceof ChartPanel) {
+                overviewPanel.remove(comp);
             }
         }
 
-        return sum / count;
+        overviewPanel.add(chartPanel, BorderLayout.CENTER);
+        overviewPanel.revalidate();
+        overviewPanel.repaint();
     }
 
-    private double calculateOverallImprovement() {
-        double avgPrevious = calculateOverallAverage(0);
-        double avgCurrent = calculateOverallAverage(1);
+    private void updateStudentChart() {
+        try {
+            StudentDAO.Student selectedStudent = (StudentDAO.Student) studentSelector.getSelectedItem();
+            if (selectedStudent == null) return;
 
-        return (avgCurrent - avgPrevious) / avgPrevious * 100;
-    }
-
-    private double calculateStudentAverage(int studentIndex, int period) {
-        double sum = 0;
-
-        for (int j = 0; j < subjects.length; j++) {
-            sum += gradesData[studentIndex][j][period];
-        }
-
-        return sum / subjects.length;
-    }
-
-    private double calculateSubjectAverage(int subjectIndex, int period) {
-        double sum = 0;
-
-        for (int i = 0; i < students.length; i++) {
-            sum += gradesData[i][subjectIndex][period];
-        }
-
-        return sum / students.length;
-    }
-
-    private String findTopSubject() {
-        double bestImprovement = -100; // Initialize to a very low value
-        String topSubject = "";
-
-        for (int j = 0; j < subjects.length; j++) {
-            double avgPrevious = calculateSubjectAverage(j, 0);
-            double avgCurrent = calculateSubjectAverage(j, 1);
-            double improvement = (avgCurrent - avgPrevious) / avgPrevious * 100;
-
-            if (improvement > bestImprovement) {
-                bestImprovement = improvement;
-                topSubject = subjects[j];
+            int studentId = selectedStudent.getStudentId();
+            Map<Integer, String> subjectIdToName = new HashMap<>();
+            for (SubjectDAO.Subject subject : subjectDAO.getAllSubjects()) {
+                subjectIdToName.put(subject.getSubjectId(), subject.getName());
             }
-        }
 
-        return topSubject + " (+" + String.format("%.1f", bestImprovement) + "%)";
+            // Get all grades for the selected student
+            List<GradeDAO.Grade> studentGrades = new ArrayList<>();
+            for (GradeDAO.Grade grade : gradeDAO.getAllGrades()) {
+                if (grade.getStudentId() == studentId) {
+                    studentGrades.add(grade);
+                }
+            }
+
+            DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+            for (GradeDAO.Grade grade : studentGrades) {
+                dataset.addValue(grade.getGrade(), "Grade",
+                        subjectIdToName.getOrDefault(grade.getSubjectId(), "Unknown"));
+            }
+
+            JFreeChart chart = ChartFactory.createBarChart(
+                    "Grades for " + selectedStudent.getName(),
+                    "Subject",
+                    "Grade",
+                    dataset,
+                    PlotOrientation.VERTICAL,
+                    true,
+                    true,
+                    false
+            );
+
+            ChartPanel chartPanel = new ChartPanel(chart);
+            chartPanel.setPreferredSize(new Dimension(800, 500));
+
+            // Replace the existing chart in the student panel
+            for (Component comp : studentPanel.getComponents()) {
+                if (comp instanceof ChartPanel) {
+                    studentPanel.remove(comp);
+                }
+            }
+
+            studentPanel.add(chartPanel, BorderLayout.CENTER);
+            studentPanel.revalidate();
+            studentPanel.repaint();
+        } catch (Exception e) {
+            handleError("Error updating student chart", e);
+        }
     }
 
-    private String findTopStudent() {
-        double bestImprovement = -100; // Initialize to a very low value
-        String topStudent = "";
+    private void updateSubjectChart() {
+        try {
+            SubjectDAO.Subject selectedSubject = (SubjectDAO.Subject) subjectSelector.getSelectedItem();
+            if (selectedSubject == null) return;
 
-        for (int i = 0; i < students.length; i++) {
-            double avgPrevious = calculateStudentAverage(i, 0);
-            double avgCurrent = calculateStudentAverage(i, 1);
-            double improvement = (avgCurrent - avgPrevious) / avgPrevious * 100;
-
-            if (improvement > bestImprovement) {
-                bestImprovement = improvement;
-                topStudent = students[i];
+            int subjectId = selectedSubject.getSubjectId();
+            Map<Integer, String> studentIdToName = new HashMap<>();
+            for (StudentDAO.Student student : studentDAO.getAllStudents()) {
+                studentIdToName.put(student.getStudentId(), student.getName());
             }
-        }
 
-        return topStudent + " (+" + String.format("%.1f", bestImprovement) + "%)";
+            // Get all grades for the selected subject
+            List<GradeDAO.Grade> subjectGrades = new ArrayList<>();
+            for (GradeDAO.Grade grade : gradeDAO.getAllGrades()) {
+                if (grade.getSubjectId() == subjectId) {
+                    subjectGrades.add(grade);
+                }
+            }
+
+            // Apply grade range filter
+            String selectedGradeRange = (String) gradeRangeSelector.getSelectedItem();
+            List<GradeDAO.Grade> filteredGrades = filterGradesByRange(subjectGrades, selectedGradeRange);
+
+            DefaultCategoryDataset dataset = new DefaultCategoryDataset();
+            for (GradeDAO.Grade grade : filteredGrades) {
+                dataset.addValue(grade.getGrade(), "Grade",
+                        studentIdToName.getOrDefault(grade.getStudentId(), "Unknown"));
+            }
+
+            // Calculate statistics for filtered grades
+            double average = filteredGrades.stream()
+                    .mapToDouble(GradeDAO.Grade::getGrade)
+                    .average()
+                    .orElse(0.0);
+
+            double highest = filteredGrades.stream()
+                    .mapToDouble(GradeDAO.Grade::getGrade)
+                    .max()
+                    .orElse(0.0);
+
+            double lowest = filteredGrades.stream()
+                    .mapToDouble(GradeDAO.Grade::getGrade)
+                    .min()
+                    .orElse(0.0);
+
+            JFreeChart chart = ChartFactory.createBarChart(
+                    "Grades for " + selectedSubject.getName() +
+                            " (" + selectedGradeRange + ")" +
+                            " (Avg: " + String.format("%.2f", average) +
+                            ", High: " + String.format("%.2f", highest) +
+                            ", Low: " + String.format("%.2f", lowest) + ")",
+                    "Student",
+                    "Grade",
+                    dataset,
+                    PlotOrientation.VERTICAL,
+                    true,
+                    true,
+                    false
+            );
+
+            ChartPanel chartPanel = new ChartPanel(chart);
+            chartPanel.setPreferredSize(new Dimension(800, 500));
+
+            // Replace the existing chart in the subject panel
+            for (Component comp : subjectPanel.getComponents()) {
+                if (comp instanceof ChartPanel) {
+                    subjectPanel.remove(comp);
+                }
+            }
+
+            subjectPanel.add(chartPanel, BorderLayout.CENTER);
+            subjectPanel.revalidate();
+            subjectPanel.repaint();
+        } catch (Exception e) {
+            handleError("Error updating subject chart", e);
+        }
     }
 
-    private String findBestSubject(int studentIndex) {
-        int bestGrade = 0;
-        String bestSubject = "";
+    private void updateDistributionChart() {
+        try {
+            // Get selected subject filter (if any)
+            SubjectDAO.Subject selectedSubject = (SubjectDAO.Subject) distributionSubjectSelector.getSelectedItem();
 
-        for (int j = 0; j < subjects.length; j++) {
-            if (gradesData[studentIndex][j][1] > bestGrade) {
-                bestGrade = gradesData[studentIndex][j][1];
-                bestSubject = subjects[j];
+            // Get all grades
+            List<GradeDAO.Grade> allGrades = gradeDAO.getAllGrades();
+
+            // Apply subject filter if selected
+            if (selectedSubject != null) {
+                int subjectId = selectedSubject.getSubjectId();
+                allGrades = allGrades.stream()
+                        .filter(grade -> grade.getSubjectId() == subjectId)
+                        .collect(Collectors.toList());
             }
-        }
 
-        return bestSubject + " (" + bestGrade + "%)";
+            // Create grade ranges (e.g., A, B, C, D, F)
+            Map<String, Integer> gradeCounts = new HashMap<>();
+            gradeCounts.put("A (90-100)", 0);
+            gradeCounts.put("B (80-89)", 0);
+            gradeCounts.put("C (70-79)", 0);
+            gradeCounts.put("D (60-69)", 0);
+            gradeCounts.put("F (0-59)", 0);
+
+            // Count grades in each range
+            for (GradeDAO.Grade grade : allGrades) {
+                double value = grade.getGrade();
+                if (value >= 90) {
+                    gradeCounts.put("A (90-100)", gradeCounts.get("A (90-100)") + 1);
+                } else if (value >= 80) {
+                    gradeCounts.put("B (80-89)", gradeCounts.get("B (80-89)") + 1);
+                } else if (value >= 70) {
+                    gradeCounts.put("C (70-79)", gradeCounts.get("C (70-79)") + 1);
+                } else if (value >= 60) {
+                    gradeCounts.put("D (60-69)", gradeCounts.get("D (60-69)") + 1);
+                } else {
+                    gradeCounts.put("F (0-59)", gradeCounts.get("F (0-59)") + 1);
+                }
+            }
+
+            JFreeChart chart;
+            String viewType = (String) distributionViewSelector.getSelectedItem();
+
+            if ("Bar Chart".equals(viewType)) {
+                // Create bar chart dataset
+                DefaultCategoryDataset barDataset = new DefaultCategoryDataset();
+                for (Map.Entry<String, Integer> entry : gradeCounts.entrySet()) {
+                    barDataset.addValue(entry.getValue(), "Count", entry.getKey());
+                }
+
+                chart = ChartFactory.createBarChart(
+                        "Grade Distribution" + (selectedSubject != null ? " for " + selectedSubject.getName() : ""),
+                        "Grade Range",
+                        "Number of Students",
+                        barDataset,
+                        PlotOrientation.VERTICAL,
+                        true,
+                        true,
+                        false
+                );
+            } else {
+                // Default to pie chart (includes "Pie Chart" selection)
+                DefaultPieDataset pieDataset = new DefaultPieDataset();
+                for (Map.Entry<String, Integer> entry : gradeCounts.entrySet()) {
+                    pieDataset.setValue(entry.getKey(), entry.getValue());
+                }
+
+                chart = ChartFactory.createPieChart(
+                        "Grade Distribution" + (selectedSubject != null ? " for " + selectedSubject.getName() : ""),
+                        pieDataset,
+                        true,
+                        true,
+                        false
+                );
+            }
+
+            ChartPanel chartPanel = new ChartPanel(chart);
+            chartPanel.setPreferredSize(new Dimension(800, 500));
+
+            // Replace existing chart
+            for (Component comp : distributionPanel.getComponents()) {
+                if (comp instanceof ChartPanel) {
+                    distributionPanel.remove(comp);
+                }
+            }
+
+            distributionPanel.add(chartPanel, BorderLayout.CENTER);
+            distributionPanel.revalidate();
+            distributionPanel.repaint();
+        } catch (Exception e) {
+            handleError("Error updating distribution chart", e);
+        }
     }
 
-    private String findWorstSubject(int studentIndex) {
-        int worstGrade = 100;
-        String worstSubject = "";
-
-        for (int j = 0; j < subjects.length; j++) {
-            if (gradesData[studentIndex][j][1] < worstGrade) {
-                worstGrade = gradesData[studentIndex][j][1];
-                worstSubject = subjects[j];
-            }
+    // Helper method to filter grades by grade range
+    private List<GradeDAO.Grade> filterGradesByRange(List<GradeDAO.Grade> grades, String gradeRange) {
+        if ("All Grades".equals(gradeRange)) {
+            return grades;
+        } else if ("Above 90".equals(gradeRange)) {
+            return grades.stream()
+                    .filter(grade -> grade.getGrade() >= 90)
+                    .collect(Collectors.toList());
+        } else if ("80-89".equals(gradeRange)) {
+            return grades.stream()
+                    .filter(grade -> grade.getGrade() >= 80 && grade.getGrade() < 90)
+                    .collect(Collectors.toList());
+        } else if ("70-79".equals(gradeRange)) {
+            return grades.stream()
+                    .filter(grade -> grade.getGrade() >= 70 && grade.getGrade() < 80)
+                    .collect(Collectors.toList());
+        } else if ("60-69".equals(gradeRange)) {
+            return grades.stream()
+                    .filter(grade -> grade.getGrade() >= 60 && grade.getGrade() < 70)
+                    .collect(Collectors.toList());
+        } else if ("Below 60".equals(gradeRange)) {
+            return grades.stream()
+                    .filter(grade -> grade.getGrade() < 60)
+                    .collect(Collectors.toList());
         }
 
-        return worstSubject + " (" + worstGrade + "%)";
+        return grades; // Default to all grades
     }
 
-    private String findTopPerformer(int subjectIndex) {
-        int bestGrade = 0;
-        String bestStudent = "";
-
-        for (int i = 0; i < students.length; i++) {
-            if (gradesData[i][subjectIndex][1] > bestGrade) {
-                bestGrade = gradesData[i][subjectIndex][1];
-                bestStudent = students[i];
-            }
-        }
-
-        return bestStudent + " (" + bestGrade + "%)";
-    }
-
-    private String findBottomPerformer(int subjectIndex) {
-        int worstGrade = 100;
-        String worstStudent = "";
-
-        for (int i = 0; i < students.length; i++) {
-            if (gradesData[i][subjectIndex][1] < worstGrade) {
-                worstGrade = gradesData[i][subjectIndex][1];
-                worstStudent = students[i];
-            }
-        }
-
-        return worstStudent + " (" + worstGrade + "%)";
+    private void handleError(String message, Exception e) {
+        JOptionPane.showMessageDialog(this,
+                message + ": " + e.getMessage(),
+                "Chart Error",
+                JOptionPane.ERROR_MESSAGE);
+        e.printStackTrace();
     }
 
     public static void main(String[] args) {
+        // This method provided for testing
         SwingUtilities.invokeLater(() -> {
-            GradesSummary app = new GradesSummary();
-            app.setVisible(true);
+            try {
+                // Create a sample connection - this would be replaced with actual DB connection
+                Connection conn = null; // Replace with real connection
+
+                GradesSummary app = new GradesSummary();
+                app.setVisible(true);
+            } catch (Exception e) {
+                e.printStackTrace();
+                JOptionPane.showMessageDialog(null,
+                        "Error starting application: " + e.getMessage(),
+                        "Startup Error",
+                        JOptionPane.ERROR_MESSAGE);
+            }
         });
     }
 }
