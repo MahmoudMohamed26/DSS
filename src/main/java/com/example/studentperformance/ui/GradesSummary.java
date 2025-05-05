@@ -7,6 +7,8 @@ import com.example.studentperformance.dao.StudentDAOImpl;
 import com.example.studentperformance.dao.SubjectDAOImpl;
 
 import javax.swing.*;
+import javax.swing.border.EmptyBorder;
+import javax.swing.border.TitledBorder;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
@@ -18,13 +20,30 @@ import java.util.stream.Collectors;
 import org.jfree.chart.ChartFactory;
 import org.jfree.chart.ChartPanel;
 import org.jfree.chart.JFreeChart;
-import org.jfree.chart.plot.PlotOrientation;
+import org.jfree.chart.axis.CategoryAxis;
+import org.jfree.chart.axis.NumberAxis;
 import org.jfree.chart.plot.CategoryPlot;
+import org.jfree.chart.plot.PiePlot;
+import org.jfree.chart.plot.PlotOrientation;
 import org.jfree.chart.renderer.category.BarRenderer;
+import org.jfree.chart.renderer.category.StandardBarPainter;
+import org.jfree.chart.title.TextTitle;
 import org.jfree.data.category.DefaultCategoryDataset;
 import org.jfree.data.general.DefaultPieDataset;
 
 public class GradesSummary extends JFrame {
+    // Color and font constants
+    private static final Color PRIMARY_COLOR = new Color(65, 105, 225);  // Royal Blue
+    private static final Color SECONDARY_COLOR = new Color(70, 130, 180); // Steel Blue
+    private static final Color BACKGROUND_COLOR = new Color(240, 248, 255); // Alice Blue
+    private static final Color TEXT_COLOR = new Color(25, 25, 112); // Midnight Blue
+    private static final Color GRID_COLOR = new Color(200, 200, 200);
+    private static final Color DATA_POINT_COLOR = new Color(255, 69, 0); // Red-Orange
+    private static final Color LINE_COLOR = new Color(65, 105, 225); // Royal Blue
+    private static final Font TITLE_FONT = new Font("Segoe UI", Font.BOLD, 20);
+    private static final Font LABEL_FONT = new Font("Segoe UI", Font.PLAIN, 14);
+    private static final Font AXIS_FONT = new Font("Segoe UI", Font.PLAIN, 12);
+
     private Connection dbConnection;
     private GradeDAO gradeDAO;
     private StudentDAO studentDAO;
@@ -52,6 +71,16 @@ public class GradesSummary extends JFrame {
     public GradesSummary() {
         this.dbConnection = DatabaseConnection.getConnection();
 
+        // Set look and feel
+        try {
+            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        // Apply custom UI settings
+        applyCustomUI();
+
         // Initialize DAOs
         initializeDAOs();
 
@@ -60,6 +89,26 @@ public class GradesSummary extends JFrame {
 
         // Load data and refresh charts
         refreshData();
+    }
+
+    private void applyCustomUI() {
+        // Set global UI properties
+        UIManager.put("Panel.background", BACKGROUND_COLOR);
+        UIManager.put("OptionPane.background", BACKGROUND_COLOR);
+        UIManager.put("Button.background", PRIMARY_COLOR);
+        UIManager.put("Button.foreground", Color.WHITE);
+        UIManager.put("Button.font", LABEL_FONT);
+        UIManager.put("Label.foreground", TEXT_COLOR);
+        UIManager.put("Label.font", LABEL_FONT);
+        UIManager.put("ComboBox.background", Color.WHITE);
+        UIManager.put("ComboBox.foreground", TEXT_COLOR);
+        UIManager.put("ComboBox.selectionBackground", PRIMARY_COLOR);
+        UIManager.put("ComboBox.selectionForeground", Color.WHITE);
+        UIManager.put("ComboBox.font", LABEL_FONT);
+        UIManager.put("TabbedPane.selected", SECONDARY_COLOR);
+        UIManager.put("TabbedPane.background", BACKGROUND_COLOR);
+        UIManager.put("TabbedPane.foreground", TEXT_COLOR);
+        UIManager.put("TabbedPane.font", LABEL_FONT);
     }
 
     private void initializeDAOs() {
@@ -83,14 +132,24 @@ public class GradesSummary extends JFrame {
         setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
         setSize(900, 600);
         setLocationRelativeTo(null);
+        getContentPane().setBackground(BACKGROUND_COLOR);
 
         tabbedPane = new JTabbedPane();
+        tabbedPane.setFont(LABEL_FONT);
+        tabbedPane.setBackground(BACKGROUND_COLOR);
+        tabbedPane.setForeground(TEXT_COLOR);
 
         // Create panels for different analytics views
         overviewPanel = new JPanel(new BorderLayout());
         studentPanel = new JPanel(new BorderLayout());
         subjectPanel = new JPanel(new BorderLayout());
         distributionPanel = new JPanel(new BorderLayout());
+
+        // Set background colors
+        overviewPanel.setBackground(BACKGROUND_COLOR);
+        studentPanel.setBackground(BACKGROUND_COLOR);
+        subjectPanel.setBackground(BACKGROUND_COLOR);
+        distributionPanel.setBackground(BACKGROUND_COLOR);
 
         // Setup control panels for each tab
         setupOverviewPanel();
@@ -109,8 +168,23 @@ public class GradesSummary extends JFrame {
 
     private void setupOverviewPanel() {
         // Overview panel doesn't need additional controls
-        JPanel controlPanel = new JPanel();
-        JButton refreshBtn = new JButton("Refresh");
+        JPanel controlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        controlPanel.setBackground(BACKGROUND_COLOR);
+        controlPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(SECONDARY_COLOR),
+                "Overview Controls",
+                TitledBorder.LEFT,
+                TitledBorder.TOP,
+                LABEL_FONT,
+                TEXT_COLOR));
+
+        JButton refreshBtn = new JButton("Refresh Data");
+        refreshBtn.setBackground(PRIMARY_COLOR);
+        refreshBtn.setForeground(Color.WHITE);
+        refreshBtn.setFont(LABEL_FONT);
+        refreshBtn.setFocusPainted(false);
+        refreshBtn.setBorder(BorderFactory.createEmptyBorder(8, 15, 8, 15));
+
         refreshBtn.addActionListener(e -> {
             try {
                 updateOverviewChart();
@@ -118,61 +192,131 @@ public class GradesSummary extends JFrame {
                 handleError("Error refreshing overview chart", ex);
             }
         });
+
         controlPanel.add(refreshBtn);
         overviewPanel.add(controlPanel, BorderLayout.NORTH);
     }
 
     private void setupStudentPanel() {
-        JPanel studentControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel studentControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
+        studentControlPanel.setBackground(BACKGROUND_COLOR);
+        studentControlPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(SECONDARY_COLOR),
+                "Student Performance Controls",
+                TitledBorder.LEFT,
+                TitledBorder.TOP,
+                LABEL_FONT,
+                TEXT_COLOR));
 
         // Student selector
+        JLabel studentLabel = new JLabel("Select Student:");
+        studentLabel.setFont(LABEL_FONT);
+        studentLabel.setForeground(TEXT_COLOR);
+
         studentSelector = new JComboBox<>();
-        studentControlPanel.add(new JLabel("Select Student:"));
-        studentControlPanel.add(studentSelector);
+        studentSelector.setFont(LABEL_FONT);
+        studentSelector.setBackground(Color.WHITE);
+        studentSelector.setForeground(TEXT_COLOR);
+        studentSelector.setPreferredSize(new Dimension(200, 30));
 
         // Add action listener to update chart when selection changes
         studentSelector.addActionListener(e -> updateStudentChart());
+
+        studentControlPanel.add(studentLabel);
+        studentControlPanel.add(studentSelector);
 
         studentPanel.add(studentControlPanel, BorderLayout.NORTH);
     }
 
     private void setupSubjectPanel() {
-        JPanel subjectControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel subjectControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
+        subjectControlPanel.setBackground(BACKGROUND_COLOR);
+        subjectControlPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(SECONDARY_COLOR),
+                "Subject Analysis Controls",
+                TitledBorder.LEFT,
+                TitledBorder.TOP,
+                LABEL_FONT,
+                TEXT_COLOR));
 
         // Subject selector
+        JLabel subjectLabel = new JLabel("Select Subject:");
+        subjectLabel.setFont(LABEL_FONT);
+        subjectLabel.setForeground(TEXT_COLOR);
+
         subjectSelector = new JComboBox<>();
-        subjectControlPanel.add(new JLabel("Select Subject:"));
-        subjectControlPanel.add(subjectSelector);
+        subjectSelector.setFont(LABEL_FONT);
+        subjectSelector.setBackground(Color.WHITE);
+        subjectSelector.setForeground(TEXT_COLOR);
+        subjectSelector.setPreferredSize(new Dimension(200, 30));
 
         // Grade range filter
+        JLabel rangeLabel = new JLabel("Grade Range:");
+        rangeLabel.setFont(LABEL_FONT);
+        rangeLabel.setForeground(TEXT_COLOR);
+
         gradeRangeSelector = new JComboBox<>(new String[]{"All Grades", "Above 90", "80-89", "70-79", "60-69", "Below 60"});
-        subjectControlPanel.add(new JLabel("Grade Range:"));
-        subjectControlPanel.add(gradeRangeSelector);
+        gradeRangeSelector.setFont(LABEL_FONT);
+        gradeRangeSelector.setBackground(Color.WHITE);
+        gradeRangeSelector.setForeground(TEXT_COLOR);
+        gradeRangeSelector.setPreferredSize(new Dimension(150, 30));
 
         // Add action listeners to update chart when selections change
         subjectSelector.addActionListener(e -> updateSubjectChart());
         gradeRangeSelector.addActionListener(e -> updateSubjectChart());
 
+        subjectControlPanel.add(subjectLabel);
+        subjectControlPanel.add(subjectSelector);
+        subjectControlPanel.add(Box.createHorizontalStrut(15));
+        subjectControlPanel.add(rangeLabel);
+        subjectControlPanel.add(gradeRangeSelector);
+
         subjectPanel.add(subjectControlPanel, BorderLayout.NORTH);
     }
 
     private void setupDistributionPanel() {
-        JPanel distributionControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT));
+        JPanel distributionControlPanel = new JPanel(new FlowLayout(FlowLayout.LEFT, 15, 10));
+        distributionControlPanel.setBackground(BACKGROUND_COLOR);
+        distributionControlPanel.setBorder(BorderFactory.createTitledBorder(
+                BorderFactory.createLineBorder(SECONDARY_COLOR),
+                "Grade Distribution Controls",
+                TitledBorder.LEFT,
+                TitledBorder.TOP,
+                LABEL_FONT,
+                TEXT_COLOR));
 
         // Subject filter for distribution
+        JLabel subjectFilterLabel = new JLabel("Filter by Subject:");
+        subjectFilterLabel.setFont(LABEL_FONT);
+        subjectFilterLabel.setForeground(TEXT_COLOR);
+
         distributionSubjectSelector = new JComboBox<>();
+        distributionSubjectSelector.setFont(LABEL_FONT);
+        distributionSubjectSelector.setBackground(Color.WHITE);
+        distributionSubjectSelector.setForeground(TEXT_COLOR);
+        distributionSubjectSelector.setPreferredSize(new Dimension(200, 30));
         distributionSubjectSelector.addItem(null); // Add null option for "All Subjects"
-        distributionControlPanel.add(new JLabel("Filter by Subject:"));
-        distributionControlPanel.add(distributionSubjectSelector);
 
         // View type selector
+        JLabel viewTypeLabel = new JLabel("View Type:");
+        viewTypeLabel.setFont(LABEL_FONT);
+        viewTypeLabel.setForeground(TEXT_COLOR);
+
         distributionViewSelector = new JComboBox<>(new String[]{"Pie Chart", "Bar Chart"});
-        distributionControlPanel.add(new JLabel("View Type:"));
-        distributionControlPanel.add(distributionViewSelector);
+        distributionViewSelector.setFont(LABEL_FONT);
+        distributionViewSelector.setBackground(Color.WHITE);
+        distributionViewSelector.setForeground(TEXT_COLOR);
+        distributionViewSelector.setPreferredSize(new Dimension(150, 30));
 
         // Add action listeners to update chart when selections change
         distributionSubjectSelector.addActionListener(e -> updateDistributionChart());
         distributionViewSelector.addActionListener(e -> updateDistributionChart());
+
+        distributionControlPanel.add(subjectFilterLabel);
+        distributionControlPanel.add(distributionSubjectSelector);
+        distributionControlPanel.add(Box.createHorizontalStrut(15));
+        distributionControlPanel.add(viewTypeLabel);
+        distributionControlPanel.add(distributionViewSelector);
 
         distributionPanel.add(distributionControlPanel, BorderLayout.NORTH);
     }
@@ -225,7 +369,15 @@ public class GradesSummary extends JFrame {
                 if (value instanceof StudentDAO.Student) {
                     value = ((StudentDAO.Student) value).getName();
                 }
-                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (isSelected) {
+                    c.setBackground(PRIMARY_COLOR);
+                    c.setForeground(Color.WHITE);
+                } else {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(TEXT_COLOR);
+                }
+                return c;
             }
         });
 
@@ -235,7 +387,15 @@ public class GradesSummary extends JFrame {
                 if (value instanceof SubjectDAO.Subject) {
                     value = ((SubjectDAO.Subject) value).getName();
                 }
-                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (isSelected) {
+                    c.setBackground(PRIMARY_COLOR);
+                    c.setForeground(Color.WHITE);
+                } else {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(TEXT_COLOR);
+                }
+                return c;
             }
         });
 
@@ -247,7 +407,15 @@ public class GradesSummary extends JFrame {
                 } else if (value instanceof SubjectDAO.Subject) {
                     value = ((SubjectDAO.Subject) value).getName();
                 }
-                return super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                Component c = super.getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+                if (isSelected) {
+                    c.setBackground(PRIMARY_COLOR);
+                    c.setForeground(Color.WHITE);
+                } else {
+                    c.setBackground(Color.WHITE);
+                    c.setForeground(TEXT_COLOR);
+                }
+                return c;
             }
         });
     }
@@ -286,14 +454,13 @@ public class GradesSummary extends JFrame {
                 false
         );
 
-        // Customize chart appearance
-        CategoryPlot plot = chart.getCategoryPlot();
-        BarRenderer renderer = (BarRenderer) plot.getRenderer();
-        renderer.setSeriesPaint(0, new Color(79, 129, 189));
+        // Apply custom styling to chart
+        styleBarChart(chart, "Average Grades by Subject");
 
         // Create and add chart panel to overview tab
         ChartPanel chartPanel = new ChartPanel(chart);
         chartPanel.setPreferredSize(new Dimension(800, 500));
+        chartPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
         // Remove existing chart if any
         for (Component comp : overviewPanel.getComponents()) {
@@ -343,8 +510,12 @@ public class GradesSummary extends JFrame {
                     false
             );
 
+            // Apply custom styling to chart
+            styleBarChart(chart, "Grades for " + selectedStudent.getName());
+
             ChartPanel chartPanel = new ChartPanel(chart);
             chartPanel.setPreferredSize(new Dimension(800, 500));
+            chartPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
             // Replace the existing chart in the student panel
             for (Component comp : studentPanel.getComponents()) {
@@ -408,10 +579,7 @@ public class GradesSummary extends JFrame {
 
             JFreeChart chart = ChartFactory.createBarChart(
                     "Grades for " + selectedSubject.getName() +
-                            " (" + selectedGradeRange + ")" +
-                            " (Avg: " + String.format("%.2f", average) +
-                            ", High: " + String.format("%.2f", highest) +
-                            ", Low: " + String.format("%.2f", lowest) + ")",
+                            " (" + selectedGradeRange + ")",
                     "Student",
                     "Grade",
                     dataset,
@@ -421,8 +589,22 @@ public class GradesSummary extends JFrame {
                     false
             );
 
+            // Apply custom styling to chart
+            styleBarChart(chart, "Grades for " + selectedSubject.getName());
+
+            // Add statistics as subtitle
+            TextTitle subtitle = new TextTitle(
+                    "Average: " + String.format("%.2f", average) +
+                            " | Highest: " + String.format("%.2f", highest) +
+                            " | Lowest: " + String.format("%.2f", lowest),
+                    new Font("Segoe UI", Font.ITALIC, 14)
+            );
+            subtitle.setPaint(TEXT_COLOR);
+            chart.addSubtitle(subtitle);
+
             ChartPanel chartPanel = new ChartPanel(chart);
             chartPanel.setPreferredSize(new Dimension(800, 500));
+            chartPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
             // Replace the existing chart in the subject panel
             for (Component comp : subjectPanel.getComponents()) {
@@ -456,7 +638,7 @@ public class GradesSummary extends JFrame {
             }
 
             // Create grade ranges (e.g., A, B, C, D, F)
-            Map<String, Integer> gradeCounts = new HashMap<>();
+            Map<String, Integer> gradeCounts = new LinkedHashMap<>(); // LinkedHashMap to maintain order
             gradeCounts.put("A (90-100)", 0);
             gradeCounts.put("B (80-89)", 0);
             gradeCounts.put("C (70-79)", 0);
@@ -479,6 +661,9 @@ public class GradesSummary extends JFrame {
                 }
             }
 
+            String chartTitle = "Grade Distribution" +
+                    (selectedSubject != null ? " for " + selectedSubject.getName() : "");
+
             JFreeChart chart;
             String viewType = (String) distributionViewSelector.getSelectedItem();
 
@@ -490,7 +675,7 @@ public class GradesSummary extends JFrame {
                 }
 
                 chart = ChartFactory.createBarChart(
-                        "Grade Distribution" + (selectedSubject != null ? " for " + selectedSubject.getName() : ""),
+                        chartTitle,
                         "Grade Range",
                         "Number of Students",
                         barDataset,
@@ -499,6 +684,9 @@ public class GradesSummary extends JFrame {
                         true,
                         false
                 );
+
+                // Apply custom styling to bar chart
+                styleBarChart(chart, chartTitle);
             } else {
                 // Default to pie chart (includes "Pie Chart" selection)
                 DefaultPieDataset pieDataset = new DefaultPieDataset();
@@ -507,16 +695,20 @@ public class GradesSummary extends JFrame {
                 }
 
                 chart = ChartFactory.createPieChart(
-                        "Grade Distribution" + (selectedSubject != null ? " for " + selectedSubject.getName() : ""),
+                        chartTitle,
                         pieDataset,
                         true,
                         true,
                         false
                 );
+
+                // Apply custom styling to pie chart
+                stylePieChart(chart, chartTitle);
             }
 
             ChartPanel chartPanel = new ChartPanel(chart);
             chartPanel.setPreferredSize(new Dimension(800, 500));
+            chartPanel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
 
             // Replace existing chart
             for (Component comp : distributionPanel.getComponents()) {
@@ -531,6 +723,82 @@ public class GradesSummary extends JFrame {
         } catch (Exception e) {
             handleError("Error updating distribution chart", e);
         }
+    }
+
+    // Helper method to style bar charts consistently
+    private void styleBarChart(JFreeChart chart, String title) {
+        // Set chart background
+        chart.setBackgroundPaint(BACKGROUND_COLOR);
+
+        // Style the title
+        chart.getTitle().setFont(TITLE_FONT);
+        chart.getTitle().setPaint(TEXT_COLOR);
+
+        // Style the plot
+        CategoryPlot plot = chart.getCategoryPlot();
+        plot.setBackgroundPaint(Color.WHITE);
+        plot.setDomainGridlinePaint(GRID_COLOR);
+        plot.setRangeGridlinePaint(GRID_COLOR);
+        plot.setOutlinePaint(SECONDARY_COLOR);
+
+        // Style the renderer
+        BarRenderer renderer = (BarRenderer) plot.getRenderer();
+        renderer.setBarPainter(new StandardBarPainter());
+        renderer.setSeriesPaint(0, PRIMARY_COLOR);
+        renderer.setShadowVisible(false);
+        renderer.setDrawBarOutline(true);
+        renderer.setDefaultOutlinePaint(SECONDARY_COLOR);
+
+        // Style the domain axis (x-axis)
+        CategoryAxis domainAxis = plot.getDomainAxis();
+        domainAxis.setLabelFont(LABEL_FONT);
+        domainAxis.setTickLabelFont(AXIS_FONT);
+        domainAxis.setLabelPaint(TEXT_COLOR);
+        domainAxis.setTickLabelPaint(TEXT_COLOR);
+
+        // Style the range axis (y-axis)
+        NumberAxis rangeAxis = (NumberAxis) plot.getRangeAxis();
+        rangeAxis.setLabelFont(LABEL_FONT);
+        rangeAxis.setTickLabelFont(AXIS_FONT);
+        rangeAxis.setLabelPaint(TEXT_COLOR);
+        rangeAxis.setTickLabelPaint(TEXT_COLOR);
+
+        // Style the legend
+        chart.getLegend().setBackgroundPaint(BACKGROUND_COLOR);
+        chart.getLegend().setItemFont(LABEL_FONT);
+        chart.getLegend().setItemPaint(TEXT_COLOR);
+    }
+
+    // Helper method to style pie charts consistently
+    private void stylePieChart(JFreeChart chart, String title) {
+        // Set chart background
+        chart.setBackgroundPaint(BACKGROUND_COLOR);
+
+        // Style the title
+        chart.getTitle().setFont(TITLE_FONT);
+        chart.getTitle().setPaint(TEXT_COLOR);
+
+        // Style the plot
+        PiePlot plot = (PiePlot) chart.getPlot();
+        plot.setBackgroundPaint(Color.WHITE);
+        plot.setOutlinePaint(SECONDARY_COLOR);
+        plot.setLabelFont(AXIS_FONT);
+        plot.setLabelBackgroundPaint(BACKGROUND_COLOR);
+        plot.setLabelOutlinePaint(SECONDARY_COLOR);
+        plot.setLabelShadowPaint(null);
+        plot.setShadowPaint(null);
+
+        // Set custom section colors
+        plot.setSectionPaint("A (90-100)", new Color(0, 153, 51));  // Green
+        plot.setSectionPaint("B (80-89)", new Color(102, 204, 0));  // Light Green
+        plot.setSectionPaint("C (70-79)", new Color(255, 204, 0));  // Yellow
+        plot.setSectionPaint("D (60-69)", new Color(255, 153, 0));  // Orange
+        plot.setSectionPaint("F (0-59)", new Color(204, 0, 0));     // Red
+
+        // Style the legend
+        chart.getLegend().setBackgroundPaint(BACKGROUND_COLOR);
+        chart.getLegend().setItemFont(LABEL_FONT);
+        chart.getLegend().setItemPaint(TEXT_COLOR);
     }
 
     // Helper method to filter grades by grade range
